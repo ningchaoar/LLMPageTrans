@@ -1,60 +1,59 @@
-# LLMPageTrans (Chrome Extension)
+# LLMPageTrans（Chrome 插件）
 
-Translate the current webpage with an LLM and display the translated result with preserved layout.
+用大语言模型（LLM）翻译当前网页，并尽量保持原页面布局不变地展示译文。
 
-This extension is designed for technical content (scientific papers, CS/LLM blogs) and supports:
-- Split-screen comparison (original on the left, translated clone on the right)
-- Or translated-only view (full-screen translated page)
-- A Markdown glossary to control terms (do-not-translate + fixed translations with original kept in parentheses)
-- Optional large-prompt chunking when the payload is too large
-- Optional page-batch concurrency for faster translation
+本插件主要面向技术内容（科学论文、专业博客、计算机科学、大语言模型等），支持：
+- 左右分屏对照：左侧原文页面，右侧译文页面（克隆渲染）
+- 仅显示译文：全屏显示译文页面，并可一键切回双栏
+- Markdown 词库：控制“不翻译术语”和“固定翻译 + 保留原词”
+- 超大请求可选分批：当待翻译内容过大时可按规则切分后分批请求（默认关闭）
+- 页面批次并发：只对页面批次做限流并发（默认开启，并发数 6）
 
-## Features
+## 功能特性
 
-- **Layout-preserving translation**: the translated page is rendered in a right-side `iframe` cloned from the current page HTML, so DOM structure/CSS layout stays as close as possible.
-- **Split-screen**: original page on the left, translated page on the right.
-- **Translated-only view**: show only the translated clone; a floating button can switch back to split view without re-translating.
-- **Scroll sync** (split mode): scrolling the translated side will attempt to sync the original side (percentage-based).
-- **Glossary (Markdown)**:
-  - `# 无需翻译`: terms that must stay exactly as-is.
-  - `# 特定翻译`: fixed translations in the form `Term: 翻译` and the output should keep the original in parentheses, e.g. `智能体(Agent)`.
-- **Professional prompt**: system prompt is tuned for CS/LLM/scientific writing, and avoids translating formulas/operators/code.
+- **尽量保持布局不变**：右侧译文通过 `iframe` 的 `srcdoc` 方式渲染克隆页面 HTML，尽量保留原 DOM/CSS 布局。
+- **左右分屏对照**：原页面在左、译文在右。
+- **仅显示译文**：译文全屏覆盖显示，并提供悬浮按钮切回分屏（无需重新翻译）。
+- **滚动同步（分屏模式）**：右侧滚动会尽量同步左侧（按滚动百分比计算）。
+- **词库（Markdown）**：
+  - `# 无需翻译`：保持原词不变（原样输出）。
+  - `# 特定翻译`：固定翻译规则 `Term: 翻译`，输出时需保留原词在括号中，例如 `智能体(Agent)`。
+- **专业翻译 Prompt**：针对 CS/LLM/论文语体优化，并避免强行翻译公式/变量/算符/代码片段。
 
-## How It Works
+## 工作原理
 
-1. The content script injects an `iframe` (`srcdoc`) containing the current page HTML (`document.documentElement.outerHTML`).
-2. The `iframe` is sandboxed without scripts to avoid client-side framework crashes (React/Next.js hydration issues).
-3. The extension extracts text nodes from the `iframe` DOM (excluding script/style/etc), then sends them to the background service worker for LLM translation.
-4. Translated strings are written back into the `iframe` text nodes, preserving layout.
+1. 内容脚本在页面中创建右侧 `iframe`（`srcdoc`），内容为当前页面 HTML（`document.documentElement.outerHTML`）。
+2. 为避免 React/Next.js 等框架在克隆页里执行脚本产生崩溃（hydration），该 `iframe` 通过 `sandbox` 禁止脚本执行。
+3. 从 `iframe` DOM 中提取可翻译文本节点（排除 `script/style` 等），交由后台 `service worker` 调用 LLM 翻译。
+4. 将译文回写到 `iframe` 的对应文本节点中，从而在保持布局的同时完成翻译展示。
 
-## Install (Developer Mode)
+## 安装（开发者模式）
 
-1. Open Chrome and go to `chrome://extensions/`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select this directory:
+1. 打开 Chrome，访问 `chrome://extensions/`。
+2. 打开右上角 **开发者模式**。
+3. 点击 **加载已解压的扩展程序（Load unpacked）**，选择本目录：
    - `translate_webpage/`
-4. Pin the extension (optional) for quick access.
 
-## Usage
+## 使用方法
 
-1. Open any webpage.
-2. Click the extension icon.
-3. Configure:
-   - **API URL**: default `https://aidp.bytedance.net/api/modelhub/online/v2/crawl`
-   - **API Key (ak)**: your `ak` value
-   - **Model Name**: default `gpt-5.4-2026-03-05`
-   - **Target Language**: default `专业而地道的中文`
-4. Optional toggles:
-   - **显示模式**: split-screen vs translated-only
-   - **大文本分批**: chunk the payload when it exceeds 4096 words (default OFF)
-   - **页面批次并发**: translate page batches concurrently (default ON, concurrency=6)
-5. Click **Translate Current Page**.
+1. 打开任意网页。
+2. 点击插件图标。
+3. 配置模型参数：
+   - **API URL**：默认 `https://aidp.bytedance.net/api/modelhub/online/v2/crawl`
+   - **API Key (ak)**：你的 `ak`
+   - **Model Name**：默认 `gpt-5.4-2026-03-05`
+   - **Target Language**：默认 `专业而地道的中文`
+4. 可选开关：
+   - **显示模式**：双页面对比 / 仅显示译文
+   - **大文本分批**：当 `userPrompt` 超过 4096 词时自动切分并分批请求（默认关闭）
+   - **页面批次并发**：页面批次翻译并发（默认开启，并发数 6；不对后台切词子分片并发）
+5. 点击 **Translate Current Page**。
 
-## Glossary Editing
+## 词库编辑（Markdown）
 
-Click **Edit Glossary 词库配置** in the popup to open the glossary editor page.
+在插件弹窗中点击 **Edit Glossary 词库配置** 可打开词库编辑页面。
 
-Default glossary example:
+默认示例：
 
 ```markdown
 # 无需翻译
@@ -64,31 +63,30 @@ Default glossary example:
 - Agent: 智能体
 ```
 
-## Notes / Limitations
+## 注意事项 / 局限
 
-- The translated clone runs **without scripts** inside the `iframe`. The layout is preserved, but interactive behaviors on the translated side may not work.
-- Some pages load content dynamically. The clone reflects the DOM at the moment you trigger translation.
-- Large pages can be slow and may hit model/API limits. Use:
-  - **页面批次并发** for faster speed (but may increase rate-limit risk).
-  - **大文本分批** for extra-large requests (kept serial on the backend to avoid inconsistent terminology).
+- 译文页面所在的 `iframe` 内 **不执行脚本**：布局更稳定，但右侧译文页上的交互（按钮、导航、动态加载等）可能不可用。
+- 某些网站内容是动态渲染/懒加载的：克隆页反映的是你点击翻译时刻的 DOM 状态。
+- 大页面可能触发 API 限流或超时：
+  - 可关闭 **页面批次并发**，回退到串行请求以降低限流风险。
+  - 对超大输入可选择开启 **大文本分批**（后台切分后的子分片仍串行，以减少术语漂移）。
 
-## Troubleshooting
+## 排障
 
-- **Click translate but nothing happens**
-  - The popup dynamically injects `content.js`/`content.css` into tabs that were opened before the extension was installed/updated. If you still see issues, reload the extension in `chrome://extensions/` and refresh the page once.
+- **点击翻译无反应**
+  - 可能是当前标签页在安装/更新插件之前打开，内容脚本尚未注入。插件已支持点击翻译时动态注入，但如仍异常，可在 `chrome://extensions/` 里重新加载插件并刷新页面重试。
 
-- **Right-side page shows "Application error: a client-side exception..."**
-  - This is usually caused by frameworks (Next.js/React) trying to hydrate inside the cloned page. The extension mitigates this by disabling scripts in the translated `iframe` via `sandbox`.
+- **右侧出现 “Application error: a client-side exception...”**
+  - 常见于 Next.js/React 等在克隆页里执行 hydration 失败。插件通过 `iframe sandbox` 禁止脚本执行来规避此问题。
 
-- **Rate limit / API errors**
-  - Reduce concurrency by disabling **页面批次并发** (falls back to serial).
-  - Check the background service worker console in `chrome://extensions/` -> this extension -> **Service worker** -> Console.
+- **限流 / API 错误**
+  - 先尝试关闭 **页面批次并发**。
+  - 查看后台日志：`chrome://extensions/` -> 本插件 -> **Service worker** -> Console。
 
-## Files
+## 文件结构
 
-- `manifest.json` - extension manifest (MV3)
-- `popup.html|css|js` - configuration UI
-- `glossary.html|js` - glossary editor
-- `content.js|css` - page cloning + DOM translation + UI
-- `background.js` - model call + prompt + optional chunking logic
-
+- `manifest.json`：插件清单（MV3）
+- `popup.html|css|js`：弹窗配置页
+- `glossary.html|js`：词库编辑页
+- `content.js|css`：页面克隆、UI、翻译回写
+- `background.js`：模型调用、Prompt、可选分批切分逻辑
