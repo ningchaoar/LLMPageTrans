@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LLM Translator Config</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h3>LLM Translator</h3>
+    
+    <div class="form-group">
+      <label for="apiUrl">API URL:</label>
+      <input type="text" id="apiUrl" placeholder="https://aidp.bytedance.net/api/modelhub/online/v2/crawl">
+    </div>
+    
+    <div class="form-group">
+      <label for="apiKey">API Key (ak):</label>
+      <input type="password" id="apiKey" placeholder="your_ak_here">
+    </div>
+    
+    <div class="form-group">
+      <label for="modelName">Model Name:</label>
+      <input type="text" id="modelName" placeholder="gpt-5.4-2026-03-05">
+    </div>
+
+    <div class="form-group">
+      <label for="targetLang">Target Language:</label>
+      <input type="text" id="targetLang" value="专业而地道的中文">
+    </div>
+
+    <div class="toggle-row">
+      <span>显示模式</span>
+      <label class="switch-label" for="splitViewEnabled">
+        <input type="checkbox" id="splitViewEnabled" checked>
+        <span>双页面对比</span>
+      </label>
+    </div>
+
+    <div class="toggle-row">
+      <span>大文本分批</span>
+      <label class="switch-label" for="enablePromptChunking">
+        <input type="checkbox" id="enablePromptChunking">
+        <span>超过 4096 词时自动切分</span>
+      </label>
+    </div>
+
+    <div class="toggle-row">
+      <span>页面批次并发</span>
+      <label class="switch-label" for="enableBatchConcurrency">
+        <input type="checkbox" id="enableBatchConcurrency" checked>
+        <span>开启并发翻译（并发数 6）</span>
+      </label>
+    </div>
+
+    <button id="saveBtn">Save Settings</button>
+    <div id="status"></div>
+
+    <hr>
+    
+    <button id="editGlossaryBtn" style="background-color: #6c757d; margin-bottom: 5px;">Edit Glossary 词库配置</button>
+    <button id="translateBtn">Translate Current Page</button>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Translation Glossary Editor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #f9f9f9;
+      display: flex;
+      justify-content: center;
+    }
+    .container {
+      width: 100%;
+      max-width: 800px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 { margin-top: 0; }
+    .instructions {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 15px;
+    }
+    textarea {
+      width: 100%;
+      height: 400px;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+      resize: vertical;
+    }
+    .btn-container {
+      margin-top: 15px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover { background-color: #0056b3; }
+    #status {
+      color: green;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>翻译词库 (Translation Glossary)</h2>
+    <div class="instructions">
+      <p>使用 Markdown 格式定义您的专有名词翻译规则：</p>
+      <ul>
+        <li>在 <strong># 无需翻译</strong> 下方列出的词汇，翻译时将保持原英文。</li>
+        <li>在 <strong># 特定翻译</strong> 下方列出的规则（格式如 <code>Agent: 智能体</code>），翻译时会自动处理为“中文(英文)”格式，例如“智能体(Agent)”。</li>
+      </ul>
+    </div>
+    <textarea id="glossaryText"></textarea>
+    <div class="btn-container">
+      <button id="saveBtn">保存词库 (Save Glossary)</button>
+      <span id="status"></span>
+    </div>
+  </div>
+  <script src="glossary.js"></script>
+</body>
+</html>

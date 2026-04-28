@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Split-Screen Translator",
+  "version": "1.0",
+  "description": "Translates the current webpage using an LLM and displays the original and translated content side-by-side.",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "css": ["content.css"],
+      "js": ["content.js"]
+    }
+  ]
+}
