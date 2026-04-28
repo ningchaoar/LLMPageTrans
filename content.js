@@ -1,5 +1,6 @@
 let isTranslating = false;
 let currentIframe = null;
+let currentIframeReady = false;
 let scrollSyncBound = false;
 let currentSplitViewEnabled = true;
 const BATCH_CONCURRENCY_LIMIT = 6;
@@ -30,6 +31,7 @@ async function startTranslation(options) {
   const iframe = document.createElement('iframe');
   iframe.id = 'translate-extension-iframe';
   currentIframe = iframe;
+  currentIframeReady = false;
   
   // 关键修复：禁用 iframe 内的 JavaScript 执行，防止 React/Next.js 等框架在克隆页中崩溃
   // 只保留同源访问权限（以便我们修改文本），不允许 allow-scripts
@@ -52,6 +54,7 @@ async function startTranslation(options) {
   applyDisplayMode(splitViewEnabled);
 
   iframe.onload = async () => {
+    currentIframeReady = true;
     // 3. Extract text from iframe
     const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
     
@@ -99,6 +102,7 @@ async function startTranslation(options) {
 function cleanupExistingTranslation() {
   document.documentElement.classList.remove('llm-translator-split');
   currentIframe = null;
+  currentIframeReady = false;
   currentSplitViewEnabled = true;
   scrollSyncBound = false;
 
@@ -126,7 +130,7 @@ function applyDisplayMode(splitViewEnabled) {
     currentIframe.classList.toggle('translate-extension-fullscreen', !splitViewEnabled);
   }
 
-  if (splitViewEnabled && currentIframe && currentIframe.contentWindow && !scrollSyncBound) {
+  if (splitViewEnabled && currentIframeReady && currentIframe && currentIframe.contentWindow && !scrollSyncBound) {
     setupScrollSync(window, currentIframe.contentWindow);
     scrollSyncBound = true;
   }
@@ -137,7 +141,7 @@ function applyDisplayMode(splitViewEnabled) {
 function updateViewToggleButton() {
   let button = document.getElementById('translate-extension-toggle-view');
 
-  if (currentSplitViewEnabled || !currentIframe) {
+  if (!currentIframe) {
     if (button) {
       button.remove();
     }
@@ -147,12 +151,15 @@ function updateViewToggleButton() {
   if (!button) {
     button = document.createElement('button');
     button.id = 'translate-extension-toggle-view';
-    button.textContent = '切换到双栏对照';
     button.addEventListener('click', () => {
-      applyDisplayMode(true);
+      // Toggle view mode without re-rendering/re-translating: only switch CSS classes.
+      applyDisplayMode(!currentSplitViewEnabled);
     });
     document.body.appendChild(button);
   }
+
+  // Keep the button visible in both modes and update label accordingly.
+  button.textContent = currentSplitViewEnabled ? '切换到单栏译文' : '切换到双栏对照';
 }
 
 function extractTextNodes(element) {
@@ -181,40 +188,149 @@ function extractTextNodes(element) {
   return textNodes;
 }
 
+function isScrollableElement(el) {
+  if (!el) {
+    return false;
+  }
+
+  const style = el.ownerDocument && el.ownerDocument.defaultView
+    ? el.ownerDocument.defaultView.getComputedStyle(el)
+    : null;
+
+  const overflowY = style ? style.overflowY : '';
+  const scrollableOverflow = overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
+  const hasScroll = (el.scrollHeight - el.clientHeight) > 32;
+
+  // Some root elements scroll even when overflowY isn't explicitly scroll/auto.
+  return hasScroll && (scrollableOverflow || el === el.ownerDocument.documentElement || el === el.ownerDocument.body);
+}
+
+function getVisibleAreaScore(win, el) {
+  const rect = el.getBoundingClientRect();
+  const vw = win.innerWidth;
+  const vh = win.innerHeight;
+  const iw = Math.max(0, Math.min(rect.right, vw) - Math.max(rect.left, 0));
+  const ih = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
+  return iw * ih;
+}
+
+function findPrimaryScrollTarget(win) {
+  const doc = win.document;
+  const scrollingElement = doc.scrollingElement || doc.documentElement;
+
+  // Fast path: regular window scrolling.
+  if (isScrollableElement(scrollingElement)) {
+    return {
+      kind: 'window',
+      win,
+      eventTarget: win,
+      scrollElement: scrollingElement
+    };
+  }
+
+  // Many sites scroll inside a main container (overflow: auto/scroll). Find it from viewport center.
+  let el = null;
+  try {
+    el = doc.elementFromPoint(win.innerWidth / 2, win.innerHeight / 2);
+  } catch (_) {
+    el = null;
+  }
+
+  let best = null;
+  let bestScore = 0;
+  while (el && el instanceof win.HTMLElement) {
+    if (isScrollableElement(el)) {
+      const score = getVisibleAreaScore(win, el);
+      if (score > bestScore) {
+        best = el;
+        bestScore = score;
+      }
+    }
+    el = el.parentElement;
+  }
+
+  if (best) {
+    return {
+      kind: 'element',
+      win,
+      eventTarget: best,
+      scrollElement: best
+    };
+  }
+
+  // Fallback to window anyway.
+  return {
+    kind: 'window',
+    win,
+    eventTarget: win,
+    scrollElement: scrollingElement
+  };
+}
+
+function getMaxScrollTop(target) {
+  const el = target.scrollElement;
+  return Math.max(0, el.scrollHeight - el.clientHeight);
+}
+
+function getScrollTop(target) {
+  return target.scrollElement.scrollTop || 0;
+}
+
+function setScrollTop(target, top) {
+  const max = getMaxScrollTop(target);
+  const clamped = Math.max(0, Math.min(top, max));
+
+  if (target.kind === 'window') {
+    target.win.scrollTo(0, clamped);
+    return;
+  }
+
+  target.scrollElement.scrollTop = clamped;
+}
+
 function setupScrollSync(mainWindow, iframeWindow) {
+  const leftTarget = findPrimaryScrollTarget(mainWindow);
+  const rightTarget = findPrimaryScrollTarget(iframeWindow);
+
   let isSyncingLeft = false;
   let isSyncingRight = false;
 
-  // Listen for scroll events on the main window (Left Side)
-  mainWindow.addEventListener('scroll', () => {
+  // Listen for scroll events on the left side (original page)
+  leftTarget.eventTarget.addEventListener('scroll', () => {
+    if (!currentSplitViewEnabled) {
+      return;
+    }
     if (!isSyncingLeft) {
       isSyncingRight = true; // Prevent infinite loop by locking the other side
       
       // Calculate scroll percentage
-      const mainScrollHeight = mainWindow.document.documentElement.scrollHeight - mainWindow.innerHeight;
-      const scrollPercentage = mainScrollHeight > 0 ? mainWindow.scrollY / mainScrollHeight : 0;
+      const maxLeft = getMaxScrollTop(leftTarget);
+      const scrollPercentage = maxLeft > 0 ? getScrollTop(leftTarget) / maxLeft : 0;
       
       // Apply percentage to iframe
-      const iframeScrollHeight = iframeWindow.document.documentElement.scrollHeight - iframeWindow.innerHeight;
-      iframeWindow.scrollTo(0, scrollPercentage * iframeScrollHeight);
+      const maxRight = getMaxScrollTop(rightTarget);
+      setScrollTop(rightTarget, scrollPercentage * maxRight);
 
       // Release lock shortly after
       setTimeout(() => { isSyncingRight = false; }, 50);
     }
   }, { passive: true });
 
-  // Listen for scroll events on the iframe (Right Side)
-  iframeWindow.addEventListener('scroll', () => {
+  // Listen for scroll events on the right side (translated iframe)
+  rightTarget.eventTarget.addEventListener('scroll', () => {
+    if (!currentSplitViewEnabled) {
+      return;
+    }
     if (!isSyncingRight) {
       isSyncingLeft = true; // Prevent infinite loop by locking the other side
       
       // Calculate scroll percentage
-      const iframeScrollHeight = iframeWindow.document.documentElement.scrollHeight - iframeWindow.innerHeight;
-      const scrollPercentage = iframeScrollHeight > 0 ? iframeWindow.scrollY / iframeScrollHeight : 0;
+      const maxRight = getMaxScrollTop(rightTarget);
+      const scrollPercentage = maxRight > 0 ? getScrollTop(rightTarget) / maxRight : 0;
       
       // Apply percentage to main window
-      const mainScrollHeight = mainWindow.document.documentElement.scrollHeight - mainWindow.innerHeight;
-      mainWindow.scrollTo(0, scrollPercentage * mainScrollHeight);
+      const maxLeft = getMaxScrollTop(leftTarget);
+      setScrollTop(leftTarget, scrollPercentage * maxLeft);
 
       // Release lock shortly after
       setTimeout(() => { isSyncingLeft = false; }, 50);
