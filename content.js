@@ -3,6 +3,8 @@ let currentIframe = null;
 let currentIframeReady = false;
 let scrollSyncBound = false;
 let currentSplitViewEnabled = true;
+let currentDebugEnabled = false;
+let currentDebugState = null;
 const BATCH_CONCURRENCY_LIMIT = 6;
 document.documentElement.setAttribute('data-translate-extension-ready', 'true');
 
@@ -18,14 +20,28 @@ async function startTranslation(options) {
   isTranslating = true;
   const splitViewEnabled = options.splitViewEnabled !== false;
   const enableBatchConcurrency = options.enableBatchConcurrency !== false;
+  currentDebugEnabled = options.enableDebugOverlay === true;
   currentSplitViewEnabled = splitViewEnabled;
   cleanupExistingTranslation();
+  currentDebugState = {
+    status: '准备翻译',
+    startedAt: Date.now(),
+    splitViewEnabled,
+    batchMode: enableBatchConcurrency ? '并发' : '串行',
+    textNodeCount: 0,
+    batchCount: 0,
+    completedBatches: 0,
+    totalBatches: 0,
+    durationMs: 0,
+    errorMessage: ''
+  };
 
   // Create loading indicator
   const loading = document.createElement('div');
   loading.id = 'translate-extension-loading';
   loading.textContent = '准备翻译...';
   document.body.appendChild(loading);
+  renderDebugOverlay();
 
   // 2. Clone page into iframe
   const iframe = document.createElement('iframe');
@@ -73,9 +89,17 @@ async function startTranslation(options) {
     }
 
     const textNodes = extractTextNodes(iframeDoc.body);
+    updateDebugState({
+      status: '已抽取文本',
+      textNodeCount: textNodes.length
+    });
     
     if (textNodes.length === 0) {
       loading.textContent = '未找到可翻译文本';
+      updateDebugState({
+        status: '未找到可翻译文本',
+        durationMs: Date.now() - currentDebugState.startedAt
+      });
       setTimeout(() => loading.remove(), 2000);
       isTranslating = false;
       return;
@@ -84,16 +108,34 @@ async function startTranslation(options) {
     // 4. Send to background script for translation in batches
     try {
       await translateInBatches(textNodes, loading, {
-        enableBatchConcurrency
+        enableBatchConcurrency,
+        onProgress: ({ completed, total, mode }) => {
+          updateDebugState({
+            status: completed === total ? '回写译文中' : '翻译处理中',
+            completedBatches: completed,
+            totalBatches: total,
+            batchMode: mode
+          });
+        }
       });
       loading.textContent = '翻译完成';
       loading.style.background = '#4caf50';
+      updateDebugState({
+        status: '翻译完成',
+        completedBatches: currentDebugState.totalBatches,
+        durationMs: Date.now() - currentDebugState.startedAt
+      });
       setTimeout(() => loading.remove(), 3000);
       isTranslating = false;
     } catch (err) {
       console.error('Translation error:', err);
       loading.textContent = 'Error: ' + err.message;
       loading.style.background = '#f44336';
+      updateDebugState({
+        status: '翻译失败',
+        errorMessage: err.message,
+        durationMs: Date.now() - currentDebugState.startedAt
+      });
       isTranslating = false;
     }
   };
@@ -104,6 +146,7 @@ function cleanupExistingTranslation() {
   currentIframe = null;
   currentIframeReady = false;
   currentSplitViewEnabled = true;
+  currentDebugState = null;
   scrollSyncBound = false;
 
   const existingIframe = document.getElementById('translate-extension-iframe');
@@ -119,6 +162,11 @@ function cleanupExistingTranslation() {
   const toggleButton = document.getElementById('translate-extension-toggle-view');
   if (toggleButton) {
     toggleButton.remove();
+  }
+
+  const debugOverlay = document.getElementById('translate-extension-debug');
+  if (debugOverlay) {
+    debugOverlay.remove();
   }
 }
 
@@ -160,6 +208,65 @@ function updateViewToggleButton() {
 
   // Keep the button visible in both modes and update label accordingly.
   button.textContent = currentSplitViewEnabled ? '切换到单栏译文' : '切换到双栏对照';
+}
+
+function formatDuration(durationMs) {
+  if (!durationMs) {
+    return '-';
+  }
+
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function renderDebugOverlay() {
+  const existingOverlay = document.getElementById('translate-extension-debug');
+  if (!currentDebugEnabled) {
+    if (existingOverlay) {
+      existingOverlay.remove();
+    }
+    return;
+  }
+
+  let overlay = existingOverlay;
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'translate-extension-debug';
+    document.body.appendChild(overlay);
+  }
+
+  if (!currentDebugState) {
+    overlay.textContent = '调试信息初始化中...';
+    return;
+  }
+
+  const lines = [
+    '调试信息',
+    `状态: ${currentDebugState.status}`,
+    `视图: ${currentDebugState.splitViewEnabled ? '双栏对照' : '单栏译文'}`,
+    `文本节点: ${currentDebugState.textNodeCount}`,
+    `批次数: ${currentDebugState.batchCount}`,
+    `完成批次: ${currentDebugState.completedBatches} / ${currentDebugState.totalBatches}`,
+    `批处理模式: ${currentDebugState.batchMode}`,
+    `耗时: ${formatDuration(currentDebugState.durationMs)}`
+  ];
+
+  if (currentDebugState.errorMessage) {
+    lines.push(`错误: ${currentDebugState.errorMessage}`);
+  }
+
+  overlay.textContent = lines.join('\n');
+}
+
+function updateDebugState(patch) {
+  if (!currentDebugEnabled || !currentDebugState) {
+    return;
+  }
+
+  currentDebugState = {
+    ...currentDebugState,
+    ...patch
+  };
+  renderDebugOverlay();
 }
 
 function extractTextNodes(element) {
@@ -375,13 +482,17 @@ function updateBatchProgress(loadingElement, completed, total, modeLabel) {
   loadingElement.textContent = `已完成 ${completed} / ${total} 批${modeLabel}`;
 }
 
-async function runBatchesWithConcurrency(batchRecords, workerCount, loadingElement) {
+async function runBatchesWithConcurrency(batchRecords, workerCount, loadingElement, onProgress) {
   let completed = 0;
   let nextBatchIndex = 0;
   const total = batchRecords.length;
   const activeWorkerCount = Math.min(workerCount, total);
+  const mode = '并发';
 
   updateBatchProgress(loadingElement, completed, total, '，并发处理中...');
+  if (onProgress) {
+    onProgress({ completed, total, mode });
+  }
 
   async function worker() {
     while (nextBatchIndex < total) {
@@ -399,6 +510,9 @@ async function runBatchesWithConcurrency(batchRecords, workerCount, loadingEleme
 
       completed += 1;
       updateBatchProgress(loadingElement, completed, total, '，并发处理中...');
+      if (onProgress) {
+        onProgress({ completed, total, mode });
+      }
     }
   }
 
@@ -406,8 +520,13 @@ async function runBatchesWithConcurrency(batchRecords, workerCount, loadingEleme
   await Promise.all(workers);
 }
 
-async function runBatchesSequentially(batchRecords, loadingElement) {
+async function runBatchesSequentially(batchRecords, loadingElement, onProgress) {
   const total = batchRecords.length;
+  const mode = '串行';
+
+  if (onProgress) {
+    onProgress({ completed: 0, total, mode });
+  }
 
   for (let index = 0; index < total; index += 1) {
     const batch = batchRecords[index];
@@ -422,6 +541,9 @@ async function runBatchesSequentially(batchRecords, loadingElement) {
     applyBatchResponse(batch, response);
 
     updateBatchProgress(loadingElement, index + 1, total, '，串行处理中...');
+    if (onProgress) {
+      onProgress({ completed: index + 1, total, mode });
+    }
   }
 }
 
@@ -437,10 +559,18 @@ async function translateInBatches(textNodes, loadingElement, options) {
     })));
   }
 
+  updateDebugState({
+    status: '开始批量翻译',
+    batchCount: batchRecords.length,
+    totalBatches: batchRecords.length,
+    completedBatches: 0,
+    batchMode: options.enableBatchConcurrency ? '并发' : '串行'
+  });
+
   if (options.enableBatchConcurrency) {
-    await runBatchesWithConcurrency(batchRecords, BATCH_CONCURRENCY_LIMIT, loadingElement);
+    await runBatchesWithConcurrency(batchRecords, BATCH_CONCURRENCY_LIMIT, loadingElement, options.onProgress);
     return;
   }
 
-  await runBatchesSequentially(batchRecords, loadingElement);
+  await runBatchesSequentially(batchRecords, loadingElement, options.onProgress);
 }

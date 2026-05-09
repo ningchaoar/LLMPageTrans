@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fixture: Basic Article</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Georgia, serif;
+      line-height: 1.7;
+      color: #1f2937;
+      background: #f8fafc;
+    }
+
+    .layout {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+      display: grid;
+      grid-template-columns: 2.3fr 1fr;
+      gap: 24px;
+    }
+
+    article,
+    aside {
+      background: #fff;
+      border: 1px solid #dbe2ea;
+      border-radius: 14px;
+      padding: 24px;
+    }
+
+    .eyebrow {
+      color: #2563eb;
+      font-size: 13px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    blockquote {
+      margin: 24px 0;
+      padding: 16px 20px;
+      border-left: 4px solid #2563eb;
+      background: #eff6ff;
+    }
+
+    .callout {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <article>
+      <div class="eyebrow">Fixture 01</div>
+      <h1>Why Stable Translation Regression Matters</h1>
+      <p>Teams often discover translation regressions only after switching to a new model, changing chunking rules, or adjusting DOM extraction heuristics. A stable offline test page helps engineers compare behavior across versions without depending on a live website that may change every day.</p>
+      <p>This fixture intentionally mixes regular paragraphs, emphasized text, links, and a quote block. The goal is simple: if a basic article page cannot keep its visual hierarchy after translation, more complex pages will almost certainly fail.</p>
+      <blockquote>
+        A useful regression page is not the one with the most text. It is the one that makes failure easy to notice and easy to reproduce.
+      </blockquote>
+      <h2>What To Observe</h2>
+      <ul>
+        <li>Whether the main title remains readable and does not overflow badly.</li>
+        <li>Whether paragraph spacing still feels natural after translation.</li>
+        <li>Whether links, bold text, and inline terminology are preserved.</li>
+        <li>Whether the side card keeps a reasonable height and width.</li>
+      </ul>
+      <p>When testing a technical translation workflow, repeatability is usually more valuable than realism. That is why an intentionally crafted article like this can be more useful than a random production page.</p>
+      <div class="callout">
+        <strong>Note:</strong> Keep terms such as token, prompt, context window, and transformer readable. The page should remain useful even when the translated text becomes longer than the original English text.
+      </div>
+    </article>
+
+    <aside>
+      <h2>Side Notes</h2>
+      <p>This sidebar is included to verify that secondary content also gets translated without breaking the page rhythm.</p>
+      <p>Recommended manual checks:</p>
+      <ol>
+        <li>Translate in split view.</li>
+        <li>Switch to single translated view.</li>
+        <li>Switch back to split view.</li>
+        <li>Scroll to the bottom and check alignment.</li>
+      </ol>
+    </aside>
+  </div>
+</body>
+</html>

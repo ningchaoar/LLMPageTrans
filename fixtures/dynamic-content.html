@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fixture: Dynamic Content</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 32px 20px 56px;
+    }
+
+    .hero,
+    .panel {
+      background: #fff;
+      border: 1px solid #dbe2ea;
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 18px;
+    }
+
+    .status {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #dbeafe;
+      color: #1d4ed8;
+      font-size: 13px;
+      font-weight: bold;
+    }
+
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 10px;
+      background: #2563eb;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    #delayed-content {
+      min-height: 80px;
+    }
+
+    #extra-panel {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <h1>Semi-Dynamic Translation Fixture</h1>
+      <p>This page inserts additional content after a short delay. The translated iframe captures the DOM state at translation time, so this fixture helps explain the boundary between static capture and later page changes.</p>
+      <span id="load-status" class="status">Waiting for delayed content</span>
+    </section>
+
+    <section class="panel">
+      <h2>Before Translation</h2>
+      <p>If you translate before the delayed section appears, the translated side will likely miss that content. If you translate after the delayed section appears, it should be included.</p>
+      <div id="delayed-content">
+        <p>The delayed section has not been inserted yet.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Expandable Area</h2>
+      <p>This area simulates an interaction-driven content region. Because scripts inside the translated iframe are disabled, the translated side will keep the DOM state captured at translation time.</p>
+      <button id="toggle-extra" type="button">Toggle extra explanation</button>
+      <div id="extra-panel">
+        <p>Interactive areas are useful test cases because they reveal an intentional product trade-off: layout stability is favored over live interactivity inside the translated clone.</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const delayedContent = document.getElementById('delayed-content');
+    const loadStatus = document.getElementById('load-status');
+    const extraPanel = document.getElementById('extra-panel');
+    const toggleButton = document.getElementById('toggle-extra');
+
+    window.setTimeout(() => {
+      delayedContent.innerHTML = '<p>Delayed content is now visible. Use this block to verify whether translation happened before or after dynamic content finished rendering.</p><p>Regression note: pages with lazy sections may need a refresh or a re-translate action once the DOM becomes stable.</p>';
+      loadStatus.textContent = 'Delayed content loaded';
+    }, 1800);
+
+    toggleButton.addEventListener('click', () => {
+      extraPanel.style.display = extraPanel.style.display === 'block' ? 'none' : 'block';
+    });
+  </script>
+</body>
+</html>

@@ -48,6 +48,7 @@
    - **显示模式**：双页面对比 / 仅显示译文
    - **大文本分批**：当 `userPrompt` 超过 4096 词时自动切分并分批请求（默认关闭）
    - **页面批次并发**：页面批次翻译并发（默认开启，并发数 6；不对后台切词子分片并发）
+   - **测试调试信息**：在页面左下角显示文本节点数、批次数、批处理模式和耗时，便于离线回归
 5. 点击 **Translate Current Page**。
 
 ## 词库编辑（Markdown）
@@ -89,6 +90,27 @@
   - 当前版本会自动识别主滚动容器，已经比单纯监听 `window` 更稳。
   - 如果目标网站使用了自定义滚动库、`transform` 假滚动、无限加载或高度变化过大，滚动同步仍可能失效或不够精准，这是当前网页结构本身带来的限制。
 
+## 离线测试页
+
+项目内置了一组固定测试页面，便于做手工回归。
+
+1. 在项目根目录执行：
+
+```bash
+python3 -m http.server 8123
+```
+
+2. 在浏览器打开：
+   - `http://127.0.0.1:8123/fixtures/index.html`
+3. 使用插件分别测试：
+   - `article-basic.html`
+   - `tech-doc.html`
+   - `internal-scroll.html`
+   - `dynamic-content.html`
+4. 结合 `fixtures/regression-checklist.md` 记录结果。
+
+建议在测试时开启 **测试调试信息**，便于观察本次翻译的文本节点数、批次数和总耗时。
+
 ## 文件结构
 
 - `manifest.json`：插件清单（MV3）
@@ -96,3 +118,4 @@
 - `glossary.html|js`：词库编辑页
 - `content.js|css`：页面克隆、UI、翻译回写
 - `background.js`：模型调用、Prompt、可选分批切分逻辑
+- `fixtures/`：离线测试页面、说明和回归清单

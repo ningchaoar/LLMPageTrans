@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLMPageTrans Offline Fixtures</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f3f4f6;
+      color: #111827;
+    }
+
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .hero,
+    .card {
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+    }
+
+    h1, h2 {
+      margin-top: 0;
+    }
+
+    a.button {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: #2563eb;
+      color: #fff;
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    code {
+      background: #e5e7eb;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+
+    ul {
+      padding-left: 20px;
+    }
+
+    .section-title {
+      margin-bottom: 14px;
+    }
+
+    .muted {
+      color: #4b5563;
+    }
+
+    .empty-state {
+      padding: 18px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 12px;
+      background: #f8fafc;
+      color: #475569;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <h1>Offline Regression Fixtures</h1>
+      <p>Use these local pages to validate translation coverage, layout stability, and scroll synchronization before testing on real websites.</p>
+      <p>Start a local server from the project root with <code>python3 -m http.server 8123</code>, then visit this page from <code>http://127.0.0.1:8123/fixtures/index.html</code>.</p>
+    </section>
+
+    <section>
+      <h2 class="section-title">Handcrafted Fixtures</h2>
+      <div class="grid">
+      <article class="card">
+        <h2>Basic Article</h2>
+        <p>Long-form content, quotes, lists, callout blocks, and mixed inline emphasis.</p>
+        <a class="button" href="./article-basic.html">Open Fixture</a>
+      </article>
+
+      <article class="card">
+        <h2>Tech Document</h2>
+        <p>Headings, code blocks, tables, inline formulas, and documentation-style sections.</p>
+        <a class="button" href="./tech-doc.html">Open Fixture</a>
+      </article>
+
+      <article class="card">
+        <h2>Internal Scroll</h2>
+        <p>A dedicated scroll container to verify whether split view remains usable on nested scroll layouts.</p>
+        <a class="button" href="./internal-scroll.html">Open Fixture</a>
+      </article>
+
+      <article class="card">
+        <h2>Dynamic Content</h2>
+        <p>Delayed content insertion, expandable sections, and state cards to simulate semi-dynamic pages.</p>
+        <a class="button" href="./dynamic-content.html">Open Fixture</a>
+      </article>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="section-title">Snapshot Fixtures</h2>
+      <p class="muted">This area automatically scans <code>fixtures/snapshots/</code> and lists any browser-saved pages ending with <code>.html</code>.</p>
+      <div id="snapshot-status" class="empty-state">Scanning snapshot directory...</div>
+      <div id="snapshot-grid" class="grid" hidden></div>
+    </section>
+
+    <section class="card">
+      <h2>Manual Checklist</h2>
+      <ul>
+        <li>Verify translated content appears in split view or single-column view.</li>
+        <li>Check whether code, formulas, and table cells remain readable.</li>
+        <li>Observe the debug overlay for text node count, batch count, and total time.</li>
+        <li>Review <code>fixtures/regression-checklist.md</code> after each major change.</li>
+      </ul>
+    </section>
+  </main>
+  <script>
+    function decodeSnapshotFileName(fileName) {
+      try {
+        return decodeURIComponent(fileName);
+      } catch (_) {
+        return fileName;
+      }
+    }
+
+    function formatSnapshotTitle(fileName) {
+      const decodedName = decodeSnapshotFileName(fileName);
+      return decodedName
+        .replace(/\.html$/i, '')
+        .replace(/[_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    async function loadSnapshotFixtures() {
+      const statusElement = document.getElementById('snapshot-status');
+      const gridElement = document.getElementById('snapshot-grid');
+
+      try {
+        const response = await fetch('./snapshots/');
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const html = await response.text();
+        const parser = new DOMParser();
+        const directoryDoc = parser.parseFromString(html, 'text/html');
+        const links = Array.from(directoryDoc.querySelectorAll('a'));
+        const snapshotFiles = links
+          .map((link) => link.getAttribute('href') || '')
+          .filter((href) => href && !href.endsWith('/'))
+          .filter((href) => /\.html$/i.test(href))
+          .sort((a, b) => a.localeCompare(b));
+
+        if (snapshotFiles.length === 0) {
+          statusElement.textContent = 'No snapshot pages found yet. Save a page into fixtures/snapshots/ using "Web Page, complete" and refresh this page.';
+          return;
+        }
+
+        gridElement.innerHTML = '';
+        snapshotFiles.forEach((fileName) => {
+          const decodedName = decodeSnapshotFileName(fileName);
+          const article = document.createElement('article');
+          article.className = 'card';
+
+          const title = document.createElement('h2');
+          title.textContent = formatSnapshotTitle(fileName);
+
+          const description = document.createElement('p');
+          description.textContent = 'Auto-discovered browser snapshot. Uses the original saved HTML and companion resource folder as-is.';
+
+          const meta = document.createElement('p');
+          meta.className = 'muted';
+          meta.textContent = `Path: snapshots/${decodedName}`;
+
+          const link = document.createElement('a');
+          link.className = 'button';
+          link.href = `./snapshots/${fileName}`;
+          link.textContent = 'Open Snapshot';
+
+          article.appendChild(title);
+          article.appendChild(description);
+          article.appendChild(meta);
+          article.appendChild(link);
+          gridElement.appendChild(article);
+        });
+
+        statusElement.hidden = true;
+        gridElement.hidden = false;
+      } catch (error) {
+        statusElement.innerHTML = 'Failed to scan <code>fixtures/snapshots/</code>. Make sure you open this page through <code>python3 -m http.server 8123</code> or another server that exposes directory listing.';
+        console.error('Failed to load snapshot fixtures:', error);
+      }
+    }
+
+    loadSnapshotFixtures();
+  </script>
+</body>
+</html>

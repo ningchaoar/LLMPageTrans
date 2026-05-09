@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fixture: Tech Document</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+
+    main {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 20px 56px;
+    }
+
+    section {
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    code,
+    pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    pre {
+      overflow-x: auto;
+      padding: 16px;
+      background: #020617;
+      border-radius: 12px;
+      border: 1px solid #1e293b;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }
+
+    th, td {
+      border: 1px solid #334155;
+      padding: 12px;
+      text-align: left;
+    }
+
+    th {
+      background: #1e293b;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>Inference Pipeline Notes</h1>
+      <p>This page simulates a documentation site. It contains headings, table cells, inline formulas such as <code>O(n log n)</code>, and code snippets that should remain untouched by translation.</p>
+      <p>The objective is to verify that structured technical content still reads well after a layout-preserving translation pass.</p>
+    </section>
+
+    <section>
+      <h2>Example Pseudocode</h2>
+      <pre><code>function rankCandidates(scores) {
+  return scores
+    .map((value, index) => ({ value, index }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 5);
+}</code></pre>
+      <p>The text around the code can be translated, but the identifiers <code>scores</code>, <code>value</code>, and <code>index</code> should not be rewritten into another language.</p>
+    </section>
+
+    <section>
+      <h2>Comparison Table</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Strategy</th>
+            <th>Latency</th>
+            <th>Quality</th>
+            <th>Operational Risk</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Single-pass translation</td>
+            <td>Low</td>
+            <td>Medium</td>
+            <td>Terminology drift on long pages</td>
+          </tr>
+          <tr>
+            <td>Chunked translation with glossary</td>
+            <td>Medium</td>
+            <td>High</td>
+            <td>Needs careful chunk merge logic</td>
+          </tr>
+          <tr>
+            <td>Multimodal page reconstruction</td>
+            <td>High</td>
+            <td>Potentially high</td>
+            <td>More expensive and harder to debug</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

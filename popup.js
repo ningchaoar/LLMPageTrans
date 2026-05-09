@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const splitViewEnabledInput = document.getElementById('splitViewEnabled');
   const enablePromptChunkingInput = document.getElementById('enablePromptChunking');
   const enableBatchConcurrencyInput = document.getElementById('enableBatchConcurrency');
+  const enableDebugOverlayInput = document.getElementById('enableDebugOverlay');
   const saveBtn = document.getElementById('saveBtn');
   const translateBtn = document.getElementById('translateBtn');
   const editGlossaryBtn = document.getElementById('editGlossaryBtn');
@@ -19,7 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'targetLang',
     'splitViewEnabled',
     'enablePromptChunking',
-    'enableBatchConcurrency'
+    'enableBatchConcurrency',
+    'enableDebugOverlay'
   ], (items) => {
     if (items.apiUrl) apiUrlInput.value = items.apiUrl;
     if (items.apiKey) apiKeyInput.value = items.apiKey;
@@ -28,6 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
     splitViewEnabledInput.checked = items.splitViewEnabled !== false;
     enablePromptChunkingInput.checked = items.enablePromptChunking === true;
     enableBatchConcurrencyInput.checked = items.enableBatchConcurrency !== false;
+    enableDebugOverlayInput.checked = items.enableDebugOverlay === true;
   });
 
   function buildSettings() {
@@ -38,7 +41,8 @@ document.addEventListener('DOMContentLoaded', () => {
       targetLang: targetLangInput.value || '专业而地道的中文',
       splitViewEnabled: splitViewEnabledInput.checked,
       enablePromptChunking: enablePromptChunkingInput.checked,
-      enableBatchConcurrency: enableBatchConcurrencyInput.checked
+      enableBatchConcurrency: enableBatchConcurrencyInput.checked,
+      enableDebugOverlay: enableDebugOverlayInput.checked
     };
   }
 
@@ -70,7 +74,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const tabId = tabs[0].id;
         const options = {
           splitViewEnabled: splitViewEnabledInput.checked,
-          enableBatchConcurrency: enableBatchConcurrencyInput.checked
+          enableBatchConcurrency: enableBatchConcurrencyInput.checked,
+          enableDebugOverlay: enableDebugOverlayInput.checked
         };
 
         // 动态检查内容脚本是否已注入，如果没注入则动态注入

@@ -1,0 +1,2 @@
+/fixtures/snapshots/*
+!/fixtures/snapshots/README.md

@@ -58,3 +58,18 @@ html.llm-translator-split {
 #translate-extension-toggle-view:hover {
   background: #1d4ed8;
 }
+
+#translate-extension-debug {
+  position: fixed;
+  bottom: 12px;
+  left: 12px;
+  z-index: 2147483648;
+  max-width: 320px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fixture: Internal Scroll</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(180deg, #dbeafe 0%, #eff6ff 100%);
+      color: #0f172a;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .shell {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+    }
+
+    aside {
+      padding: 24px;
+      background: #1e293b;
+      color: #e2e8f0;
+    }
+
+    .scroll-panel {
+      margin: 18px;
+      padding: 24px;
+      overflow-y: auto;
+      border-radius: 18px;
+      border: 1px solid #93c5fd;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 12px 40px rgba(37, 99, 235, 0.15);
+    }
+
+    .card {
+      padding: 18px;
+      margin-bottom: 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <h1>Nested Scroll Layout</h1>
+      <p>This page uses a dedicated scrollable content panel instead of normal window scrolling.</p>
+      <p>Use it to inspect whether the translated side remains reasonably synchronized in split view.</p>
+    </aside>
+
+    <main class="scroll-panel">
+      <div class="card">
+        <h2>Testing Goal</h2>
+        <p>Many modern web applications render long documents inside an internal container. This breaks simplistic scroll listeners that only watch <code>window</code>. The fixture exists to expose that failure mode quickly.</p>
+      </div>
+
+      <div class="card">
+        <h2>Manual Steps</h2>
+        <ol>
+          <li>Start translation in split view.</li>
+          <li>Scroll this panel slowly to the middle.</li>
+          <li>Jump near the bottom with the scrollbar.</li>
+          <li>Switch to single translated view and back.</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>Long Content Block A</h2>
+        <p>Stable regression pages should be visually obvious. If the synchronized pane lags far behind, jumps unpredictably, or stops moving entirely, the problem should be visible without opening developer tools.</p>
+      </div>
+
+      <div class="card">
+        <h2>Long Content Block B</h2>
+        <p>Translating long content often changes total block height. A percentage-based mapping is usually more resilient than pixel-perfect mirroring, but it may still drift when the translated document becomes much taller than the original.</p>
+      </div>
+
+      <div class="card">
+        <h2>Long Content Block C</h2>
+        <p>Use this section to see whether headings, ordered lists, and prose paragraphs remain aligned well enough to keep reading comfortable in split view mode.</p>
+      </div>
+
+      <div class="card">
+        <h2>Long Content Block D</h2>
+        <p>The exact implementation does not need to be perfect. It only needs to be stable, explainable, and easy to regress-test after future changes.</p>
+      </div>
+
+      <div class="card">
+        <h2>Bottom Marker</h2>
+        <p>You reached the end of the internal scroll fixture. If the translated pane is also near the end, the current scroll sync strategy is at least usable for this case.</p>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
