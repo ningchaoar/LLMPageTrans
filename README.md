@@ -44,12 +44,21 @@
    - **API Key (ak)**：你的 `ak`
    - **Model Name**：默认 `gpt-5.4-2026-03-05`
    - **Target Language**：默认 `专业而地道的中文`
+   - **Input Price / 1M Tokens**：可选，用于成本预估
+   - **Output Price / 1M Tokens**：可选，用于成本预估
+   - **Estimated Output Ratio**：译文输出倍率预估，默认 `1.2`
 4. 可选开关：
    - **显示模式**：双页面对比 / 仅显示译文
    - **大文本分批**：当 `userPrompt` 超过 4096 词时自动切分并分批请求（默认关闭）
    - **页面批次并发**：页面批次翻译并发（默认开启，并发数 6；不对后台切词子分片并发）
    - **测试调试信息**：在页面左下角显示文本节点数、批次数、批处理模式和耗时，便于离线回归
-5. 点击 **Translate Current Page**。
+5. 可先点击 **Estimate Current Page** 查看：
+   - 文本节点数
+   - 预估输入 / 输出 / 总 Tokens
+   - 预计页面批次数
+   - 预计大 Prompt 分片数
+   - 预估成本
+6. 点击 **Translate Current Page** 时，插件会先自动做一次预估，再由你确认是否继续翻译。
 
 ## 词库编辑（Markdown）
 

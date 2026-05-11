@@ -8,10 +8,26 @@ let currentDebugState = null;
 const BATCH_CONCURRENCY_LIMIT = 6;
 document.documentElement.setAttribute('data-translate-extension-ready', 'true');
 
-chrome.runtime.onMessage.addListener((request) => {
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'start_translation') {
     if (!isTranslating) {
       startTranslation(request.options || {});
+    }
+    return;
+  }
+
+  if (request.action === 'ping') {
+    sendResponse({ ready: true });
+    return;
+  }
+
+  if (request.action === 'collect_estimate_payload') {
+    try {
+      const estimatePayload = collectEstimatePayload();
+      sendResponse({ estimatePayload });
+    } catch (error) {
+      console.error('Estimate collection error:', error);
+      sendResponse({ error: error.message });
     }
   }
 });
@@ -269,6 +285,17 @@ function updateDebugState(patch) {
   renderDebugOverlay();
 }
 
+function isInsideExtensionUi(node) {
+  let current = node && node.parentNode;
+  while (current) {
+    if (current.id && current.id.startsWith('translate-extension-')) {
+      return true;
+    }
+    current = current.parentNode;
+  }
+  return false;
+}
+
 function extractTextNodes(element) {
   const textNodes = [];
   const walker = document.createTreeWalker(
@@ -276,6 +303,9 @@ function extractTextNodes(element) {
     NodeFilter.SHOW_TEXT,
     {
       acceptNode: function(node) {
+        if (isInsideExtensionUi(node)) {
+          return NodeFilter.FILTER_REJECT;
+        }
         const parentName = node.parentNode.nodeName;
         if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'OBJECT'].includes(parentName)) {
           return NodeFilter.FILTER_REJECT;
@@ -293,6 +323,25 @@ function extractTextNodes(element) {
     textNodes.push(node);
   }
   return textNodes;
+}
+
+function buildEstimateTextMap(textNodes) {
+  const textMap = {};
+  textNodes.forEach((node, index) => {
+    textMap[index] = node.nodeValue.trim();
+  });
+  return textMap;
+}
+
+function collectEstimatePayload() {
+  const root = document.body || document.documentElement;
+  const textNodes = extractTextNodes(root);
+  return {
+    pageTitle: document.title || '',
+    pageUrl: window.location.href,
+    textNodeCount: textNodes.length,
+    textMap: buildEstimateTextMap(textNodes)
+  };
 }
 
 function isScrollableElement(el) {
