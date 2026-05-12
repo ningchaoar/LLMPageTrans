@@ -1,15 +1,13 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const apiUrlInput = document.getElementById('apiUrl');
-  const apiKeyInput = document.getElementById('apiKey');
-  const modelNameInput = document.getElementById('modelName');
-  const targetLangInput = document.getElementById('targetLang');
-  const inputPricePerMillionInput = document.getElementById('inputPricePerMillion');
-  const outputPricePerMillionInput = document.getElementById('outputPricePerMillion');
+  const endpointSelect = document.getElementById('endpointSelect');
+  const endpointDescription = document.getElementById('endpointDescription');
+  const endpointSummary = document.getElementById('endpointSummary');
   const estimatedOutputRatioInput = document.getElementById('estimatedOutputRatio');
   const splitViewEnabledInput = document.getElementById('splitViewEnabled');
   const enablePromptChunkingInput = document.getElementById('enablePromptChunking');
   const enableBatchConcurrencyInput = document.getElementById('enableBatchConcurrency');
   const enableDebugOverlayInput = document.getElementById('enableDebugOverlay');
+  const manageEndpointsBtn = document.getElementById('manageEndpointsBtn');
   const saveBtn = document.getElementById('saveBtn');
   const estimateBtn = document.getElementById('estimateBtn');
   const translateBtn = document.getElementById('translateBtn');
@@ -17,32 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const estimateResultDiv = document.getElementById('estimateResult');
   const statusDiv = document.getElementById('status');
 
-  // Load saved settings
-  chrome.storage.sync.get([
-    'apiUrl',
-    'apiKey',
-    'modelName',
-    'targetLang',
-    'inputPricePerMillion',
-    'outputPricePerMillion',
-    'estimatedOutputRatio',
-    'splitViewEnabled',
-    'enablePromptChunking',
-    'enableBatchConcurrency',
-    'enableDebugOverlay'
-  ], (items) => {
-    if (items.apiUrl) apiUrlInput.value = items.apiUrl;
-    if (items.apiKey) apiKeyInput.value = items.apiKey;
-    if (items.modelName) modelNameInput.value = items.modelName;
-    if (items.targetLang) targetLangInput.value = items.targetLang;
-    if (items.inputPricePerMillion !== undefined) inputPricePerMillionInput.value = items.inputPricePerMillion;
-    if (items.outputPricePerMillion !== undefined) outputPricePerMillionInput.value = items.outputPricePerMillion;
-    estimatedOutputRatioInput.value = items.estimatedOutputRatio || '1.2';
-    splitViewEnabledInput.checked = items.splitViewEnabled !== false;
-    enablePromptChunkingInput.checked = items.enablePromptChunking === true;
-    enableBatchConcurrencyInput.checked = items.enableBatchConcurrency !== false;
-    enableDebugOverlayInput.checked = items.enableDebugOverlay === true;
-  });
+  let endpointsState = normalizeEndpointsState(null);
 
   function setStatus(message, isError) {
     statusDiv.textContent = message || '';
@@ -69,10 +42,84 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/'/g, '&#39;');
   }
 
+  function chromeStorageGet(area, keys) {
+    return new Promise((resolve, reject) => {
+      chrome.storage[area].get(keys, (items) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        resolve(items);
+      });
+    });
+  }
+
+  function chromeStorageSet(area, items) {
+    return new Promise((resolve, reject) => {
+      chrome.storage[area].set(items, () => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
+  function chromeStorageRemove(area, keys) {
+    return new Promise((resolve, reject) => {
+      chrome.storage[area].remove(keys, () => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
+  function getCurrentEndpoint() {
+    return findEndpointById(endpointsState, endpointSelect.value || endpointsState.currentEndpointId);
+  }
+
+  function renderEndpointOptions() {
+    endpointSelect.innerHTML = '';
+
+    endpointsState.endpoints.forEach((endpoint) => {
+      const option = document.createElement('option');
+      option.value = endpoint.id;
+      option.textContent = endpoint.name || '未命名接入点';
+      endpointSelect.appendChild(option);
+    });
+
+    endpointSelect.value = endpointsState.currentEndpointId;
+  }
+
+  function renderEndpointSummary(endpoint) {
+    if (!endpoint) {
+      endpointDescription.textContent = '当前没有可用接入点，请先创建。';
+      endpointSummary.innerHTML = '<strong>未配置接入点</strong><div class="result-line">请点击 Manage Endpoints 创建模型接入点。</div>';
+      return;
+    }
+
+    const definition = getProviderDefinition(endpoint.mode);
+    endpointDescription.textContent = definition.description;
+    endpointSummary.innerHTML = [
+      '<strong>当前接入点</strong>',
+      `<div class="result-line">名称：${escapeHtml(endpoint.name)}</div>`,
+      `<div class="result-line">模式：${escapeHtml(definition.label)}</div>`,
+      `<div class="result-line">模型：${escapeHtml(endpoint.modelName || '未配置')}</div>`,
+      `<div class="result-line">语言：${escapeHtml(endpoint.targetLang || DEFAULT_ENDPOINT_TARGET_LANGUAGE)}</div>`,
+      `<div class="result-line">URL：${escapeHtml(endpoint.baseUrl || '未配置')}</div>`
+    ].join('');
+  }
+
   function buildEstimateSummary(estimate) {
     const lines = [
       '<strong>当前页面预估</strong>',
       `<div class="result-line">页面标题：${escapeHtml(estimate.pageTitle || '未命名页面')}</div>`,
+      `<div class="result-line">接入点：${escapeHtml(estimate.endpointName || '未命名接入点')}</div>`,
+      `<div class="result-line">模式：${escapeHtml(estimate.providerLabel || estimate.providerId || '未知')}</div>`,
       `<div class="result-line">文本节点数：${formatNumber(estimate.textNodeCount)}</div>`,
       `<div class="result-line">文本字符数：${formatNumber(estimate.textCharacterCount)}</div>`,
       `<div class="result-line">预估输入 Tokens：${formatNumber(estimate.estimatedInputTokens)}</div>`,
@@ -161,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function injectContentScript(tabId) {
     return new Promise((resolve, reject) => {
       chrome.scripting.insertCSS({
-        target: { tabId: tabId },
+        target: { tabId },
         files: ['content.css']
       }, () => {
         if (chrome.runtime.lastError) {
@@ -170,7 +217,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         chrome.scripting.executeScript({
-          target: { tabId: tabId },
+          target: { tabId },
           files: ['content.js']
         }, () => {
           if (chrome.runtime.lastError) {
@@ -197,8 +244,9 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       await injectContentScript(tabId);
     } catch (error) {
-      if (buildRestrictedPageError(tab)) {
-        throw buildRestrictedPageError(tab);
+      const currentRestrictedPageError = buildRestrictedPageError(tab);
+      if (currentRestrictedPageError) {
+        throw currentRestrictedPageError;
       }
       throw error;
     }
@@ -234,32 +282,41 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function buildSettings() {
-    return {
-      apiUrl: apiUrlInput.value || 'https://aidp.bytedance.net/api/modelhub/online/v2/crawl',
-      apiKey: apiKeyInput.value,
-      modelName: modelNameInput.value || 'gpt-5.4-2026-03-05',
-      targetLang: targetLangInput.value || '专业而地道的中文',
-      inputPricePerMillion: inputPricePerMillionInput.value,
-      outputPricePerMillion: outputPricePerMillionInput.value,
+  async function savePreferences() {
+    const endpoint = getCurrentEndpoint();
+    if (!endpoint) {
+      throw new Error('请先创建并选择一个模型接入点。');
+    }
+
+    endpointsState.currentEndpointId = endpointSelect.value;
+
+    await chromeStorageSet('local', {
+      [ENDPOINTS_STORAGE_KEY]: endpointsState
+    });
+
+    await chromeStorageSet('sync', {
       estimatedOutputRatio: estimatedOutputRatioInput.value || '1.2',
       splitViewEnabled: splitViewEnabledInput.checked,
       enablePromptChunking: enablePromptChunkingInput.checked,
       enableBatchConcurrency: enableBatchConcurrencyInput.checked,
       enableDebugOverlay: enableDebugOverlayInput.checked
-    };
-  }
-
-  function saveSettings(onSaved) {
-    chrome.storage.sync.set(buildSettings(), () => {
-      setStatus('Settings saved!', false);
-      setTimeout(() => {
-        setStatus('', false);
-      }, 2000);
-      if (onSaved) {
-        onSaved();
-      }
     });
+
+    await chromeStorageRemove('sync', [
+      'selectedProvider',
+      'providers',
+      'apiUrl',
+      'apiKey',
+      'modelName',
+      'targetLang',
+      'inputPricePerMillion',
+      'outputPricePerMillion'
+    ]);
+
+    setStatus('Preferences saved!', false);
+    setTimeout(() => {
+      setStatus('', false);
+    }, 2000);
   }
 
   async function estimateCurrentPage() {
@@ -292,6 +349,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function buildTranslateConfirmationMessage(estimate) {
     const lines = [
       `页面：${estimate.pageTitle || '未命名页面'}`,
+      `接入点：${estimate.endpointName || '未命名接入点'}`,
+      `模式：${estimate.providerLabel || estimate.providerId || '未知'}`,
       `文本节点：${estimate.textNodeCount}`,
       `预估输入 Tokens：${estimate.estimatedInputTokens}`,
       `预估输出 Tokens：${estimate.estimatedOutputTokens}`,
@@ -309,56 +368,105 @@ document.addEventListener('DOMContentLoaded', () => {
     return lines.join('\n');
   }
 
-  // Save settings
-  saveBtn.addEventListener('click', () => {
-    saveSettings();
+  async function loadInitialState() {
+    const [localItems, syncItems] = await Promise.all([
+      chromeStorageGet('local', [ENDPOINTS_STORAGE_KEY]),
+      chromeStorageGet('sync', [
+        'selectedProvider',
+        'providers',
+        'apiUrl',
+        'apiKey',
+        'modelName',
+        'targetLang',
+        'inputPricePerMillion',
+        'outputPricePerMillion',
+        'estimatedOutputRatio',
+        'splitViewEnabled',
+        'enablePromptChunking',
+        'enableBatchConcurrency',
+        'enableDebugOverlay'
+      ])
+    ]);
+
+    endpointsState = localItems[ENDPOINTS_STORAGE_KEY]
+      ? normalizeEndpointsState(localItems[ENDPOINTS_STORAGE_KEY])
+      : buildLegacyEndpointsState(syncItems);
+
+    estimatedOutputRatioInput.value = syncItems.estimatedOutputRatio || '1.2';
+    splitViewEnabledInput.checked = syncItems.splitViewEnabled !== false;
+    enablePromptChunkingInput.checked = syncItems.enablePromptChunking === true;
+    enableBatchConcurrencyInput.checked = syncItems.enableBatchConcurrency !== false;
+    enableDebugOverlayInput.checked = syncItems.enableDebugOverlay === true;
+
+    renderEndpointOptions();
+    renderEndpointSummary(getCurrentEndpoint());
+  }
+
+  endpointSelect.addEventListener('change', () => {
+    endpointsState.currentEndpointId = endpointSelect.value;
+    renderEndpointSummary(getCurrentEndpoint());
+    estimateResultDiv.hidden = true;
   });
 
-  estimateBtn.addEventListener('click', () => {
-    saveSettings(async () => {
-      try {
-        await estimateCurrentPage();
-      } catch (error) {
-        console.error('Estimate failed:', error);
-        setStatus(`预估失败：${error.message}`, true);
+  manageEndpointsBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'endpoints.html' });
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    try {
+      await savePreferences();
+    } catch (error) {
+      console.error('Save preferences failed:', error);
+      setStatus(`保存失败：${error.message}`, true);
+    }
+  });
+
+  estimateBtn.addEventListener('click', async () => {
+    try {
+      await savePreferences();
+      await estimateCurrentPage();
+    } catch (error) {
+      console.error('Estimate failed:', error);
+      setStatus(`预估失败：${error.message}`, true);
+    }
+  });
+
+  translateBtn.addEventListener('click', async () => {
+    try {
+      await savePreferences();
+      const { tab, estimate } = await estimateCurrentPage();
+      if (estimate.textNodeCount === 0) {
+        setStatus('当前页面未找到可翻译文本', true);
+        return;
       }
-    });
-  });
 
-  // Trigger translation
-  translateBtn.addEventListener('click', () => {
-    saveSettings(async () => {
-      try {
-        const { tab, estimate } = await estimateCurrentPage();
-        if (estimate.textNodeCount === 0) {
-          setStatus('当前页面未找到可翻译文本', true);
-          return;
-        }
-
-        const shouldContinue = window.confirm(buildTranslateConfirmationMessage(estimate));
-        if (!shouldContinue) {
-          setStatus('已取消翻译，你可以先调整模型或价格配置', false);
-          return;
-        }
-
-        const options = {
-          splitViewEnabled: splitViewEnabledInput.checked,
-          enableBatchConcurrency: enableBatchConcurrencyInput.checked,
-          enableDebugOverlay: enableDebugOverlayInput.checked
-        };
-
-        await ensureContentScriptReady(tab);
-        await sendTabMessage(tab.id, { action: 'start_translation', options });
-        window.close();
-      } catch (error) {
-        console.error('Translate failed before start:', error);
-        setStatus(`翻译前预估失败：${error.message}`, true);
+      const shouldContinue = window.confirm(buildTranslateConfirmationMessage(estimate));
+      if (!shouldContinue) {
+        setStatus('已取消翻译，你可以先调整接入点或参数', false);
+        return;
       }
-    });
+
+      const options = {
+        splitViewEnabled: splitViewEnabledInput.checked,
+        enableBatchConcurrency: enableBatchConcurrencyInput.checked,
+        enableDebugOverlay: enableDebugOverlayInput.checked
+      };
+
+      await ensureContentScriptReady(tab);
+      await sendTabMessage(tab.id, { action: 'start_translation', options });
+      window.close();
+    } catch (error) {
+      console.error('Translate failed before start:', error);
+      setStatus(`翻译前预估失败：${error.message}`, true);
+    }
   });
 
-  // Open glossary editor
   editGlossaryBtn.addEventListener('click', () => {
     chrome.tabs.create({ url: 'glossary.html' });
+  });
+
+  loadInitialState().catch((error) => {
+    console.error('Load popup state failed:', error);
+    setStatus(`初始化失败：${error.message}`, true);
   });
 });

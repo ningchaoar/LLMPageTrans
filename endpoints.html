@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>模型接入点管理</title>
+  <link rel="stylesheet" href="endpoints.css">
+</head>
+<body>
+  <div class="page">
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h2>模型接入点</h2>
+        <button id="createEndpointBtn" type="button">新建接入点</button>
+      </div>
+      <div id="endpointList" class="endpoint-list"></div>
+    </div>
+
+    <div class="content">
+      <div class="content-header">
+        <div>
+          <h1>接入点配置</h1>
+          <p>本地保存多个模型接入点，弹窗中只选择当前要使用的一个。</p>
+        </div>
+        <div class="header-actions">
+          <button id="setActiveBtn" type="button" class="secondary-button">设为当前使用</button>
+          <button id="deleteEndpointBtn" type="button" class="danger-button">删除接入点</button>
+        </div>
+      </div>
+
+      <div class="form-card">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="endpointName">接入点名称</label>
+            <input type="text" id="endpointName" placeholder="例如 DeepSeek Pro">
+          </div>
+
+          <div class="form-group">
+            <label for="endpointMode">接入模式</label>
+            <select id="endpointMode"></select>
+            <div id="modeDescription" class="helper-text"></div>
+          </div>
+
+          <div class="form-group full-width">
+            <label for="endpointUrl" id="endpointUrlLabel">API URL</label>
+            <input type="text" id="endpointUrl">
+          </div>
+
+          <div class="form-group full-width">
+            <label for="endpointApiKey" id="endpointApiKeyLabel">API Key</label>
+            <input type="password" id="endpointApiKey">
+          </div>
+
+          <div class="form-group">
+            <label for="endpointModelName" id="endpointModelLabel">Model Name</label>
+            <input type="text" id="endpointModelName">
+          </div>
+
+          <div class="form-group">
+            <label for="endpointTargetLang">Target Language</label>
+            <input type="text" id="endpointTargetLang" placeholder="专业而地道的中文">
+          </div>
+
+          <div class="form-group">
+            <label for="endpointInputPrice">Input Price / 1M Tokens</label>
+            <input type="number" id="endpointInputPrice" min="0" step="0.0001" placeholder="例如 0.15">
+          </div>
+
+          <div class="form-group">
+            <label for="endpointOutputPrice">Output Price / 1M Tokens</label>
+            <input type="number" id="endpointOutputPrice" min="0" step="0.0001" placeholder="例如 0.6">
+          </div>
+        </div>
+
+        <div class="footer-actions">
+          <button id="saveEndpointBtn" type="button">保存接入点</button>
+          <span id="status"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="provider-config.js"></script>
+  <script src="endpoint-storage.js"></script>
+  <script src="endpoints.js"></script>
+</body>
+</html>

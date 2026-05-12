@@ -1,3 +1,5 @@
+importScripts('provider-config.js', 'endpoint-storage.js', 'providers.js');
+
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'translate_text') {
     handleTranslation(request.payload)
@@ -24,8 +26,6 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   }
 });
 
-const DEFAULT_API_URL = 'https://aidp.bytedance.net/api/modelhub/online/v2/crawl';
-const DEFAULT_MODEL = 'gpt-5.4-2026-03-05';
 const DEFAULT_TARGET_LANGUAGE = '专业而地道的中文';
 const DEFAULT_GLOSSARY = `# 无需翻译\n- token\n\n# 特定翻译\n- Agent: 智能体`;
 const MAX_PROMPT_WORDS = 4096;
@@ -227,6 +227,9 @@ function buildEstimationResult(textMap, options) {
     pageTitle,
     pageUrl,
     textNodeCount,
+    providerId,
+    providerLabel,
+    endpointName,
     modelName,
     targetLang,
     glossaryMarkdown,
@@ -270,6 +273,9 @@ function buildEstimationResult(textMap, options) {
   return {
     pageTitle,
     pageUrl,
+    providerId,
+    providerLabel,
+    endpointName,
     modelName,
     targetLang,
     textNodeCount,
@@ -333,61 +339,31 @@ function mergeTranslatedChunks(originalMap, translatedMaps, fragmentMetadata) {
   return mergedMap;
 }
 
-async function translateTextMap(url, model, systemPrompt, textMap) {
-  const userPrompt = JSON.stringify(textMap);
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      stream: false,
-      model,
-      max_tokens: 4096,
-      reasoning: { effort: 'none' },
-      messages: [
-        {
-          role: 'system',
-          content: [
-            {
-              type: 'text',
-              text: systemPrompt
-            }
-          ]
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: userPrompt
-            }
-          ]
-        }
-      ]
-    })
-  });
+function parseJsonResponse(content) {
+  let normalizedContent = content;
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`API Error ${response.status}: ${errText}`);
-  }
-
-  const data = await response.json();
-  let content = data.choices[0].message.content;
-
-  if (content.startsWith('```json')) {
-    content = content.replace(/^```json/, '').replace(/```$/, '').trim();
-  } else if (content.startsWith('```')) {
-    content = content.replace(/^```/, '').replace(/```$/, '').trim();
+  if (normalizedContent.startsWith('```json')) {
+    normalizedContent = normalizedContent.replace(/^```json/, '').replace(/```$/, '').trim();
+  } else if (normalizedContent.startsWith('```')) {
+    normalizedContent = normalizedContent.replace(/^```/, '').replace(/```$/, '').trim();
   }
 
   try {
-    return JSON.parse(content);
+    return JSON.parse(normalizedContent);
   } catch (error) {
-    console.error('Failed to parse LLM response:', content);
+    console.error('Failed to parse LLM response:', normalizedContent);
     throw new Error('LLM did not return valid JSON');
   }
+}
+
+async function translateTextMap(providerId, providerConfig, model, systemPrompt, textMap) {
+  const userPrompt = JSON.stringify(textMap);
+  const content = await globalThis.sendProviderChatCompletion(providerId, providerConfig, {
+    model,
+    systemPrompt,
+    userPrompt
+  });
+  return parseJsonResponse(content);
 }
 
 function getStoredSettings(keys) {
@@ -396,83 +372,104 @@ function getStoredSettings(keys) {
   });
 }
 
-async function handleEstimateRequest(payload) {
-  const textMap = payload && payload.textMap ? payload.textMap : {};
-  const textNodeCount = payload && payload.textNodeCount ? payload.textNodeCount : Object.keys(textMap).length;
-
-  const items = await getStoredSettings([
-    'modelName',
-    'targetLang',
-    'glossaryMarkdown',
-    'enablePromptChunking',
-    'inputPricePerMillion',
-    'outputPricePerMillion',
-    'estimatedOutputRatio'
-  ]);
-
-  const modelName = items.modelName || DEFAULT_MODEL;
-  const targetLang = items.targetLang || DEFAULT_TARGET_LANGUAGE;
-  const glossaryMarkdown = items.glossaryMarkdown || DEFAULT_GLOSSARY;
-  const inputPricePerMillion = toNumber(items.inputPricePerMillion, NaN);
-  const outputPricePerMillion = toNumber(items.outputPricePerMillion, NaN);
-  const estimatedOutputRatio = toNumber(items.estimatedOutputRatio, DEFAULT_ESTIMATED_OUTPUT_RATIO);
-
-  return buildEstimationResult(textMap, {
-    pageTitle: payload.pageTitle || '',
-    pageUrl: payload.pageUrl || '',
-    textNodeCount,
-    modelName,
-    targetLang,
-    glossaryMarkdown,
-    enablePromptChunking: items.enablePromptChunking === true,
-    inputPricePerMillion,
-    outputPricePerMillion,
-    estimatedOutputRatio
+function getLocalSettings(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, resolve);
   });
 }
 
-async function handleTranslation(textMap) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.sync.get([
+async function getRuntimeEndpointSettings() {
+  const [syncItems, localItems] = await Promise.all([
+    getStoredSettings([
+      'selectedProvider',
+      'providers',
       'apiUrl',
       'apiKey',
       'modelName',
       'targetLang',
       'glossaryMarkdown',
-      'enablePromptChunking'
-    ], async (items) => {
-      const {
-        apiUrl,
-        apiKey,
-        modelName,
-        targetLang,
-        glossaryMarkdown,
-        enablePromptChunking
-      } = items;
+      'enablePromptChunking',
+      'inputPricePerMillion',
+      'outputPricePerMillion',
+      'estimatedOutputRatio'
+    ]),
+    getLocalSettings([globalThis.ENDPOINTS_STORAGE_KEY])
+  ]);
 
-      if (!apiKey) {
-        return reject(new Error('API Key is not configured. Please open the extension popup and configure it.'));
+  const endpointState = localItems[globalThis.ENDPOINTS_STORAGE_KEY]
+    ? globalThis.normalizeEndpointsState(localItems[globalThis.ENDPOINTS_STORAGE_KEY])
+    : globalThis.buildLegacyEndpointsState(syncItems);
+  const endpoint = globalThis.findEndpointById(endpointState, endpointState.currentEndpointId);
+
+  if (!endpoint) {
+    throw new Error('当前没有可用的模型接入点，请先在 Manage Endpoints 中创建。');
+  }
+
+  const providerDefinition = globalThis.getProviderDefinition(endpoint.mode);
+
+  return {
+    endpoint,
+    providerId: endpoint.mode,
+    providerDefinition,
+    modelName: endpoint.modelName || providerDefinition.defaultConfig.modelName,
+    targetLang: endpoint.targetLang || DEFAULT_TARGET_LANGUAGE,
+    glossaryMarkdown: syncItems.glossaryMarkdown || DEFAULT_GLOSSARY,
+    enablePromptChunking: syncItems.enablePromptChunking === true,
+    estimatedOutputRatio: toNumber(syncItems.estimatedOutputRatio, DEFAULT_ESTIMATED_OUTPUT_RATIO)
+  };
+}
+
+async function handleEstimateRequest(payload) {
+  const textMap = payload && payload.textMap ? payload.textMap : {};
+  const textNodeCount = payload && payload.textNodeCount ? payload.textNodeCount : Object.keys(textMap).length;
+  const settings = await getRuntimeEndpointSettings();
+
+  return buildEstimationResult(textMap, {
+    pageTitle: payload.pageTitle || '',
+    pageUrl: payload.pageUrl || '',
+    textNodeCount,
+    providerId: settings.providerId,
+    providerLabel: settings.providerDefinition.label,
+    endpointName: settings.endpoint.name,
+    modelName: settings.modelName,
+    targetLang: settings.targetLang,
+    glossaryMarkdown: settings.glossaryMarkdown,
+    enablePromptChunking: settings.enablePromptChunking,
+    inputPricePerMillion: toNumber(settings.endpoint.inputPricePerMillion, NaN),
+    outputPricePerMillion: toNumber(settings.endpoint.outputPricePerMillion, NaN),
+    estimatedOutputRatio: settings.estimatedOutputRatio
+  });
+}
+
+async function handleTranslation(textMap) {
+  return new Promise((resolve, reject) => {
+    getRuntimeEndpointSettings().then(async (settings) => {
+      if (!settings.endpoint.apiKey) {
+        return reject(new Error(`API Key is not configured for endpoint "${settings.endpoint.name}". Please open Manage Endpoints and complete it.`));
       }
 
-      const urlBase = apiUrl || DEFAULT_API_URL;
-      const model = modelName || DEFAULT_MODEL;
-      const lang = targetLang || DEFAULT_TARGET_LANGUAGE;
-      
-      let url = urlBase;
-      if (!url.includes('ak=')) {
-        const separator = url.includes('?') ? '&' : '?';
-        url = `${url}${separator}ak=${apiKey}`;
+      if (!settings.endpoint.baseUrl) {
+        return reject(new Error(`API URL is not configured for endpoint "${settings.endpoint.name}". Please open Manage Endpoints and complete it.`));
       }
 
-      const currentGlossary = glossaryMarkdown || DEFAULT_GLOSSARY;
-      const systemPrompt = buildSystemPrompt(lang, currentGlossary);
+      const systemPrompt = buildSystemPrompt(settings.targetLang, settings.glossaryMarkdown);
+      const runtimeProviderConfig = {
+        baseUrl: settings.endpoint.baseUrl,
+        apiKey: settings.endpoint.apiKey
+      };
 
       try {
         const userPrompt = JSON.stringify(textMap);
-        const shouldChunk = enablePromptChunking === true && countWords(userPrompt) > MAX_PROMPT_WORDS;
+        const shouldChunk = settings.enablePromptChunking === true && countWords(userPrompt) > MAX_PROMPT_WORDS;
 
         if (!shouldChunk) {
-          const translatedMap = await translateTextMap(url, model, systemPrompt, textMap);
+          const translatedMap = await translateTextMap(
+            settings.providerId,
+            runtimeProviderConfig,
+            settings.modelName,
+            systemPrompt,
+            textMap
+          );
           resolve(translatedMap);
           return;
         }
@@ -481,7 +478,13 @@ async function handleTranslation(textMap) {
         const translatedMaps = [];
 
         for (const chunk of chunks) {
-          const translatedChunk = await translateTextMap(url, model, systemPrompt, chunk);
+          const translatedChunk = await translateTextMap(
+            settings.providerId,
+            runtimeProviderConfig,
+            settings.modelName,
+            systemPrompt,
+            chunk
+          );
           translatedMaps.push(translatedChunk);
         }
 
@@ -489,6 +492,6 @@ async function handleTranslation(textMap) {
       } catch (err) {
         reject(err);
       }
-    });
+    }).catch(reject);
   });
 }

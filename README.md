@@ -39,26 +39,53 @@
 
 1. 打开任意网页。
 2. 点击插件图标。
-3. 配置模型参数：
-   - **API URL**：默认 `https://aidp.bytedance.net/api/modelhub/online/v2/crawl`
-   - **API Key (ak)**：你的 `ak`
-   - **Model Name**：默认 `gpt-5.4-2026-03-05`
-   - **Target Language**：默认 `专业而地道的中文`
-   - **Input Price / 1M Tokens**：可选，用于成本预估
-   - **Output Price / 1M Tokens**：可选，用于成本预估
+3. 如果还没有接入点，点击 **Manage Endpoints**。
+4. 在接入点管理页中可：
+   - 新建一个模型接入点
+   - 编辑已有接入点
+   - 删除接入点
+   - 设为当前使用的接入点
+5. 每个接入点保存一套完整配置：
+   - **接入点名称**
+   - **接入模式**：`ModelHub` 或 `Standard Bearer`
+   - **API URL**
+   - **API Key**
+   - **Model Name**
+   - **Target Language**
+   - **Input Price / 1M Tokens**
+   - **Output Price / 1M Tokens**
    - **Estimated Output Ratio**：译文输出倍率预估，默认 `1.2`
-4. 可选开关：
+6. 回到弹窗后，选择当前要使用的接入点。
+7. 点击 **Save Preferences** 时，会保存：
+   - 当前选中的接入点
+   - 运行参数和界面开关
+8. 可选开关：
    - **显示模式**：双页面对比 / 仅显示译文
    - **大文本分批**：当 `userPrompt` 超过 4096 词时自动切分并分批请求（默认关闭）
    - **页面批次并发**：页面批次翻译并发（默认开启，并发数 6；不对后台切词子分片并发）
    - **测试调试信息**：在页面左下角显示文本节点数、批次数、批处理模式和耗时，便于离线回归
-5. 可先点击 **Estimate Current Page** 查看：
+9. 可先点击 **Estimate Current Page** 查看：
    - 文本节点数
    - 预估输入 / 输出 / 总 Tokens
    - 预计页面批次数
    - 预计大 Prompt 分片数
    - 预估成本
-6. 点击 **Translate Current Page** 时，插件会先自动做一次预估，再由你确认是否继续翻译。
+10. 点击 **Translate Current Page** 时，插件会先自动做一次预估，再由你确认是否继续翻译。
+
+其中：
+
+- `ModelHub`：适用于 `ak` 通过 URL 查询参数传递的接口
+- `Standard Bearer`：适用于类似 `Authorization: Bearer <API_KEY>` 的标准模式，可手动填写如 `https://api.deepseek.com/chat/completions`
+
+## 本地存储说明
+
+- 模型接入点保存在插件自己的 `chrome.storage.local` 中，不会写入仓库工作区文件。
+- 普通网站无法直接读取你插件的本地存储内容，也无法直接拿到其中的 API Key。
+- 这并不等于绝对安全：如果本机中毒、浏览器资料目录被拷走、安装了恶意扩展，仍然可能泄露。
+- 因此更安全的实践是：
+  - 不把接入点配置导出并上传到公共位置
+  - 不把包含 API Key 的配置文件提交到 GitHub
+  - 尽量使用权限收敛、额度可控的 API Key
 
 ## 词库编辑（Markdown）
 
@@ -123,6 +150,10 @@ python3 -m http.server 8123
 ## 文件结构
 
 - `manifest.json`：插件清单（MV3）
+- `provider-config.js`：供应商定义与配置迁移逻辑
+- `endpoint-storage.js`：模型接入点存储与迁移逻辑
+- `endpoints.html|css|js`：接入点管理页面
+- `providers.js`：provider adapter 与统一请求封装
 - `popup.html|css|js`：弹窗配置页
 - `glossary.html|js`：词库编辑页
 - `content.js|css`：页面克隆、UI、翻译回写
