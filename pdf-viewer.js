@@ -10,10 +10,13 @@ const progressText = document.getElementById('progressText');
 const estimatePanel = document.getElementById('estimatePanel');
 const emptyPanel = document.getElementById('emptyPanel');
 const pagesContainer = document.getElementById('pages');
+const layoutModeBtn = document.getElementById('layoutModeBtn');
+const readableModeBtn = document.getElementById('readableModeBtn');
 const estimateBtn = document.getElementById('estimateBtn');
 const translateBtn = document.getElementById('translateBtn');
 
 const {
+  buildPdfLayoutBlocks,
   buildPdfTextMap,
   countPdfTextCharacters,
   groupPdfTextItems
@@ -23,6 +26,7 @@ let sourceUrl = '';
 let documentTitle = '';
 let pdfPages = [];
 let isTranslating = false;
+let displayMode = 'layout';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('vendor/pdfjs/pdf.worker.mjs');
 
@@ -71,6 +75,22 @@ function getBlockTranslationElement(blockId) {
   return document.querySelector(`[data-translation-id="${CSS.escape(blockId)}"]`);
 }
 
+function getLayoutTranslationElement(blockId) {
+  return document.querySelector(`[data-layout-translation-id="${CSS.escape(blockId)}"]`);
+}
+
+function calculateOverlayFontSize(block, text) {
+  const baseFontSize = Math.max(6, Math.min(14, block.fitFontSize || block.fontSize || 10));
+  const sourceLength = Math.max(1, String(block.text || '').length);
+  const targetLength = Math.max(1, String(text || '').length);
+
+  if (targetLength <= sourceLength * 1.15) {
+    return baseFontSize;
+  }
+
+  return Math.max(6, Math.round(baseFontSize * Math.sqrt((sourceLength * 1.15) / targetLength) * 10) / 10);
+}
+
 function renderEstimate(estimate) {
   estimatePanel.hidden = false;
   estimatePanel.innerHTML = `
@@ -94,54 +114,169 @@ function renderTextlessMessage() {
   emptyPanel.textContent = '这个 PDF 没有提取到足够的文本层内容，可能是扫描版或图片型 PDF。当前 MVP 先支持可复制文本的 PDF。';
 }
 
-function renderPages() {
-  pagesContainer.innerHTML = '';
+function renderReadablePage(page) {
+  const section = document.createElement('section');
+  section.className = 'page readable-page';
+  section.dataset.pageNumber = String(page.pageNumber);
 
-  pdfPages.forEach((page) => {
-    const section = document.createElement('section');
-    section.className = 'page';
-    section.dataset.pageNumber = String(page.pageNumber);
+  const header = document.createElement('div');
+  header.className = 'page-header';
+  header.innerHTML = `
+    <span>Page ${page.pageNumber}</span>
+    <span class="page-status" data-page-status="${page.pageNumber}">${page.blocks.length} blocks</span>
+  `;
+  section.appendChild(header);
 
-    const header = document.createElement('div');
-    header.className = 'page-header';
-    header.innerHTML = `
-      <span>Page ${page.pageNumber}</span>
-      <span class="page-status" data-page-status="${page.pageNumber}">${page.blocks.length} blocks</span>
-    `;
-    section.appendChild(header);
+  if (page.blocks.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'page-empty';
+    empty.textContent = 'No extractable text found on this page.';
+    section.appendChild(empty);
+    return section;
+  }
 
-    if (page.blocks.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'page-empty';
-      empty.textContent = 'No extractable text found on this page.';
-      section.appendChild(empty);
-      pagesContainer.appendChild(section);
-      return;
+  const grid = document.createElement('div');
+  grid.className = 'block-grid';
+
+  page.blocks.forEach((block) => {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'block';
+
+    const source = document.createElement('div');
+    source.className = 'source-block';
+    source.textContent = block.text;
+
+    const translated = document.createElement('div');
+    translated.className = 'translated-block pending';
+    translated.dataset.translationId = block.id;
+    translated.textContent = page.translations && page.translations[block.id]
+      ? page.translations[block.id]
+      : 'Waiting for translation';
+    if (page.translations && page.translations[block.id]) {
+      translated.classList.remove('pending');
     }
 
-    const grid = document.createElement('div');
-    grid.className = 'block-grid';
+    wrapper.appendChild(source);
+    wrapper.appendChild(translated);
+    grid.appendChild(wrapper);
+  });
 
-    page.blocks.forEach((block) => {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'block';
+  section.appendChild(grid);
+  return section;
+}
 
-      const source = document.createElement('div');
-      source.className = 'source-block';
-      source.textContent = block.text;
+function createLayoutBlockElement(block, page) {
+  const element = document.createElement('div');
+  element.className = `layout-translation-block ${block.type || 'paragraph'}`;
+  element.dataset.layoutTranslationId = block.id;
+  element.style.left = `${block.bbox.x}px`;
+  element.style.top = `${block.bbox.y}px`;
+  element.style.width = `${Math.max(24, block.bbox.width)}px`;
+  element.style.height = `${Math.max(12, block.bbox.height)}px`;
+  const text = page.translations && page.translations[block.id]
+    ? page.translations[block.id]
+    : block.text;
+  element.style.fontSize = `${calculateOverlayFontSize(block, text)}px`;
+  element.textContent = text;
+  element.title = text;
+  if (page.translations && page.translations[block.id]) {
+    element.classList.add('translated');
+  }
+  return element;
+}
 
-      const translated = document.createElement('div');
-      translated.className = 'translated-block pending';
-      translated.dataset.translationId = block.id;
-      translated.textContent = 'Waiting for translation';
+function createLayoutMaskElement(block) {
+  const mask = document.createElement('div');
+  mask.className = `layout-text-mask ${block.type || 'paragraph'}`;
+  const bbox = block.maskBbox || block.bbox;
+  mask.style.left = `${bbox.x}px`;
+  mask.style.top = `${bbox.y}px`;
+  mask.style.width = `${Math.max(1, bbox.width)}px`;
+  mask.style.height = `${Math.max(1, bbox.height)}px`;
+  return mask;
+}
 
-      wrapper.appendChild(source);
-      wrapper.appendChild(translated);
-      grid.appendChild(wrapper);
-    });
+function appendPageBackground(container, page, label) {
+  if (!page.sourceImageDataUrl) {
+    return;
+  }
 
-    section.appendChild(grid);
-    pagesContainer.appendChild(section);
+  const image = document.createElement('img');
+  image.className = 'pdf-page-background';
+  image.src = page.sourceImageDataUrl;
+  image.alt = label;
+  image.width = page.viewport.width;
+  image.height = page.viewport.height;
+  container.appendChild(image);
+}
+
+function renderLayoutPage(page) {
+  const section = document.createElement('section');
+  section.className = 'page layout-page-pair';
+  section.dataset.pageNumber = String(page.pageNumber);
+
+  const header = document.createElement('div');
+  header.className = 'page-header layout-pair-header';
+  header.innerHTML = `
+    <span>Page ${page.pageNumber}</span>
+    <span class="page-status" data-page-status="${page.pageNumber}">${page.blocks.length} layout blocks</span>
+  `;
+
+  const body = document.createElement('div');
+  body.className = 'layout-pair-body';
+
+  const sourceShell = document.createElement('div');
+  sourceShell.className = 'pdf-page-shell';
+  const sourceTitle = document.createElement('div');
+  sourceTitle.className = 'layout-column-title';
+  sourceTitle.textContent = 'Original';
+  const sourcePage = document.createElement('div');
+  sourcePage.className = 'pdf-canvas-page';
+  sourcePage.style.width = `${page.viewport.width}px`;
+  sourcePage.style.height = `${page.viewport.height}px`;
+  appendPageBackground(sourcePage, page, `Original PDF page ${page.pageNumber}`);
+  sourceShell.appendChild(sourceTitle);
+  sourceShell.appendChild(sourcePage);
+
+  const translatedShell = document.createElement('div');
+  translatedShell.className = 'pdf-page-shell';
+  const translatedTitle = document.createElement('div');
+  translatedTitle.className = 'layout-column-title';
+  translatedTitle.textContent = 'Translated Layout';
+  const translatedPage = document.createElement('div');
+  translatedPage.className = 'translated-layout-page';
+  translatedPage.style.width = `${page.viewport.width}px`;
+  translatedPage.style.height = `${page.viewport.height}px`;
+
+  appendPageBackground(translatedPage, page, `Translated PDF page background ${page.pageNumber}`);
+
+  page.blocks.forEach((block) => {
+    translatedPage.appendChild(createLayoutMaskElement(block));
+  });
+
+  page.blocks.forEach((block) => {
+    translatedPage.appendChild(createLayoutBlockElement(block, page));
+  });
+
+  translatedShell.appendChild(translatedTitle);
+  translatedShell.appendChild(translatedPage);
+
+  body.appendChild(sourceShell);
+  body.appendChild(translatedShell);
+  section.appendChild(header);
+  section.appendChild(body);
+  return section;
+}
+
+function renderPages() {
+  pagesContainer.innerHTML = '';
+  pagesContainer.classList.toggle('layout-mode', displayMode === 'layout');
+  pagesContainer.classList.toggle('readable-mode', displayMode === 'readable');
+
+  pdfPages.forEach((page) => {
+    pagesContainer.appendChild(displayMode === 'layout'
+      ? renderLayoutPage(page)
+      : renderReadablePage(page));
   });
 }
 
@@ -237,14 +372,26 @@ async function requestPageTranslation(page, sessionId, totalPages) {
 }
 
 function applyPageTranslation(page, translatedMap) {
+  page.translations = {
+    ...(page.translations || {}),
+    ...translatedMap
+  };
+
   page.blocks.forEach((block) => {
     const element = getBlockTranslationElement(block.id);
-    if (!element) {
-      return;
+    if (element) {
+      element.classList.remove('pending');
+      element.textContent = translatedMap[block.id] || block.text;
     }
 
-    element.classList.remove('pending');
-    element.textContent = translatedMap[block.id] || block.text;
+    const layoutElement = getLayoutTranslationElement(block.id);
+    if (layoutElement) {
+      const translatedText = translatedMap[block.id] || block.text;
+      layoutElement.classList.add('translated');
+      layoutElement.textContent = translatedText;
+      layoutElement.title = translatedText;
+      layoutElement.style.fontSize = `${calculateOverlayFontSize(block, translatedText)}px`;
+    }
   });
 }
 
@@ -305,15 +452,47 @@ async function translatePdf() {
   }
 }
 
+async function renderPageToDataUrl(page, viewport) {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+
+  await page.render({
+    canvasContext: context,
+    viewport
+  }).promise;
+
+  return canvas.toDataURL('image/png');
+}
+
 async function extractPdfPages(pdfDocument) {
   const pages = [];
 
   for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
     setStatus('Extracting PDF text...', `${pageNumber} / ${pdfDocument.numPages} pages`, false);
     const page = await pdfDocument.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1.2 });
+    const sourceImageDataUrl = await renderPageToDataUrl(page, viewport);
     const textContent = await page.getTextContent();
-    const blocks = groupPdfTextItems(textContent.items, { pageNumber });
-    pages.push({ pageNumber, blocks });
+    const blocks = buildPdfLayoutBlocks(textContent.items, {
+      pageNumber,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      viewportTransform: viewport.transform
+    });
+    const readableBlocks = groupPdfTextItems(textContent.items, { pageNumber });
+    pages.push({
+      pageNumber,
+      blocks,
+      readableBlocks,
+      viewport: {
+        width: Math.ceil(viewport.width),
+        height: Math.ceil(viewport.height)
+      },
+      sourceImageDataUrl,
+      translations: {}
+    });
   }
 
   return pages;
@@ -382,6 +561,21 @@ translateBtn.addEventListener('click', () => {
     isTranslating = false;
     setBusyState(false);
   });
+});
+
+function setDisplayMode(nextMode) {
+  displayMode = nextMode;
+  layoutModeBtn.classList.toggle('active', displayMode === 'layout');
+  readableModeBtn.classList.toggle('active', displayMode === 'readable');
+  renderPages();
+}
+
+layoutModeBtn.addEventListener('click', () => {
+  setDisplayMode('layout');
+});
+
+readableModeBtn.addEventListener('click', () => {
+  setDisplayMode('readable');
 });
 
 loadPdf();
