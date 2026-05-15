@@ -198,6 +198,13 @@ document.addEventListener('DOMContentLoaded', () => {
     return null;
   }
 
+  function openPdfViewerForTab(tab, pdfSource) {
+    const viewerUrl = chrome.runtime.getURL(
+      `pdf-viewer.html?source=${encodeURIComponent(pdfSource)}&title=${encodeURIComponent(tab.title || 'PDF')}`
+    );
+    chrome.tabs.create({ url: viewerUrl });
+  }
+
   async function tryPingContentScript(tabId) {
     try {
       const response = await sendTabMessage(tabId, { action: 'ping' });
@@ -430,6 +437,13 @@ document.addEventListener('DOMContentLoaded', () => {
   estimateBtn.addEventListener('click', async () => {
     try {
       await savePreferences();
+      const tab = await getActiveTab();
+      const pdfSource = PdfSourceUtils.extractPdfSourceFromTab(tab);
+      if (pdfSource) {
+        openPdfViewerForTab(tab, pdfSource);
+        window.close();
+        return;
+      }
       await estimateCurrentPage();
     } catch (error) {
       console.error('Estimate failed:', error);
@@ -440,6 +454,14 @@ document.addEventListener('DOMContentLoaded', () => {
   translateBtn.addEventListener('click', async () => {
     try {
       await savePreferences();
+      const activeTab = await getActiveTab();
+      const pdfSource = PdfSourceUtils.extractPdfSourceFromTab(activeTab);
+      if (pdfSource) {
+        openPdfViewerForTab(activeTab, pdfSource);
+        window.close();
+        return;
+      }
+
       const { tab, estimate } = await estimateCurrentPage();
       if (estimate.textNodeCount === 0) {
         setStatus('当前页面未找到可翻译文本', true);
