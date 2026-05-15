@@ -36,6 +36,7 @@ async function startTranslation(options) {
   isTranslating = true;
   const splitViewEnabled = options.splitViewEnabled !== false;
   const enableBatchConcurrency = options.enableBatchConcurrency !== false;
+  const translationSessionId = `translation_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   currentDebugEnabled = options.enableDebugOverlay === true;
   currentSplitViewEnabled = splitViewEnabled;
   cleanupExistingTranslation();
@@ -124,6 +125,9 @@ async function startTranslation(options) {
     // 4. Send to background script for translation in batches
     try {
       await translateInBatches(textNodes, loading, {
+        sessionId: translationSessionId,
+        pageTitle: document.title || '',
+        pageUrl: window.location.href,
         enableBatchConcurrency,
         onProgress: ({ completed, total, mode }) => {
           updateDebugState({
@@ -141,6 +145,15 @@ async function startTranslation(options) {
         completedBatches: currentDebugState.totalBatches,
         durationMs: Date.now() - currentDebugState.startedAt
       });
+      await finalizeBrutalTestLog({
+        sessionId: translationSessionId,
+        status: 'completed',
+        pageTitle: document.title || '',
+        pageUrl: window.location.href,
+        textNodeCount: textNodes.length,
+        batchCount: currentDebugState.totalBatches,
+        durationMs: Date.now() - currentDebugState.startedAt
+      });
       setTimeout(() => loading.remove(), 3000);
       isTranslating = false;
     } catch (err) {
@@ -151,6 +164,16 @@ async function startTranslation(options) {
         status: '翻译失败',
         errorMessage: err.message,
         durationMs: Date.now() - currentDebugState.startedAt
+      });
+      await finalizeBrutalTestLog({
+        sessionId: translationSessionId,
+        status: 'failed',
+        pageTitle: document.title || '',
+        pageUrl: window.location.href,
+        textNodeCount: textNodes.length,
+        batchCount: currentDebugState.totalBatches,
+        durationMs: Date.now() - currentDebugState.startedAt,
+        errorMessage: err.message
       });
       isTranslating = false;
     }
@@ -494,11 +517,14 @@ function setupScrollSync(mainWindow, iframeWindow) {
   }, { passive: true });
 }
 
-async function requestBatchTranslation(textMap) {
+async function requestBatchTranslation(textMap, meta) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({
       action: 'translate_text',
-      payload: textMap
+      payload: {
+        textMap,
+        meta: meta || {}
+      }
     }, (res) => {
       if (chrome.runtime.lastError) {
         return reject(chrome.runtime.lastError);
@@ -507,6 +533,17 @@ async function requestBatchTranslation(textMap) {
         return reject(new Error(res.error));
       }
       resolve(res.translatedMap);
+    });
+  });
+}
+
+async function finalizeBrutalTestLog(meta) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({
+      action: 'finalize_brutal_test_log',
+      payload: meta
+    }, () => {
+      resolve();
     });
   });
 }
@@ -554,7 +591,13 @@ async function runBatchesWithConcurrency(batchRecords, workerCount, loadingEleme
         textMap[item.localIndex] = item.node.nodeValue.trim();
       });
 
-      const response = await requestBatchTranslation(textMap);
+      const response = await requestBatchTranslation(textMap, {
+        sessionId: batch[0] ? batch[0].sessionId : '',
+        batchIndex: batch[0] ? batch[0].batchIndex : batchIndex,
+        totalBatches: total,
+        pageTitle: batch[0] ? batch[0].pageTitle : '',
+        pageUrl: batch[0] ? batch[0].pageUrl : ''
+      });
       applyBatchResponse(batch, response);
 
       completed += 1;
@@ -586,7 +629,13 @@ async function runBatchesSequentially(batchRecords, loadingElement, onProgress) 
       textMap[item.localIndex] = item.node.nodeValue.trim();
     });
 
-    const response = await requestBatchTranslation(textMap);
+    const response = await requestBatchTranslation(textMap, {
+      sessionId: batch[0] ? batch[0].sessionId : '',
+      batchIndex: batch[0] ? batch[0].batchIndex : index,
+      totalBatches: total,
+      pageTitle: batch[0] ? batch[0].pageTitle : '',
+      pageUrl: batch[0] ? batch[0].pageUrl : ''
+    });
     applyBatchResponse(batch, response);
 
     updateBatchProgress(loadingElement, index + 1, total, '，串行处理中...');
@@ -604,7 +653,11 @@ async function translateInBatches(textNodes, loadingElement, options) {
     const rawBatch = textNodes.slice(i, i + batchSize);
     batchRecords.push(rawBatch.map((node, index) => ({
       node,
-      localIndex: index
+      localIndex: index,
+      batchIndex: batchRecords.length,
+      sessionId: options.sessionId,
+      pageTitle: options.pageTitle,
+      pageUrl: options.pageUrl
     })));
   }
 

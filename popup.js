@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const enablePromptChunkingInput = document.getElementById('enablePromptChunking');
   const enableBatchConcurrencyInput = document.getElementById('enableBatchConcurrency');
   const enableDebugOverlayInput = document.getElementById('enableDebugOverlay');
+  const enableBrutalTestModeInput = document.getElementById('enableBrutalTestMode');
   const manageEndpointsBtn = document.getElementById('manageEndpointsBtn');
   const saveBtn = document.getElementById('saveBtn');
   const estimateBtn = document.getElementById('estimateBtn');
@@ -128,7 +129,8 @@ document.addEventListener('DOMContentLoaded', () => {
       `<div class="result-line">页面批次数：${formatNumber(estimate.estimatedPageBatchCount)}</div>`,
       `<div class="result-line">大 Prompt 分片数：${formatNumber(estimate.chunkCount)}</div>`,
       `<div class="result-line">预估成本：${formatMoney(estimate.estimatedCost)}</div>`,
-      `<div class="result-line">模型：${escapeHtml(estimate.modelName)}</div>`
+      `<div class="result-line">模型：${escapeHtml(estimate.modelName)}</div>`,
+      `<div class="result-line">暴力测试模式：${estimate.brutalTestModeEnabled ? '开启' : '关闭'}</div>`
     ];
 
     if (estimate.warningMessage) {
@@ -299,7 +301,8 @@ document.addEventListener('DOMContentLoaded', () => {
       splitViewEnabled: splitViewEnabledInput.checked,
       enablePromptChunking: enablePromptChunkingInput.checked,
       enableBatchConcurrency: enableBatchConcurrencyInput.checked,
-      enableDebugOverlay: enableDebugOverlayInput.checked
+      enableDebugOverlay: enableDebugOverlayInput.checked,
+      enableBrutalTestMode: enableBrutalTestModeInput.checked
     });
 
     await chromeStorageRemove('sync', [
@@ -357,7 +360,8 @@ document.addEventListener('DOMContentLoaded', () => {
       `预估总 Tokens：${estimate.estimatedTotalTokens}`,
       `大 Prompt 分片数：${estimate.chunkCount}`,
       `页面批次数：${estimate.estimatedPageBatchCount}`,
-      `预估成本：${formatMoney(estimate.estimatedCost)}`
+      `预估成本：${formatMoney(estimate.estimatedCost)}`,
+      `暴力测试模式：${estimate.brutalTestModeEnabled ? '开启' : '关闭'}`
     ];
 
     if (estimate.warningMessage) {
@@ -384,7 +388,8 @@ document.addEventListener('DOMContentLoaded', () => {
         'splitViewEnabled',
         'enablePromptChunking',
         'enableBatchConcurrency',
-        'enableDebugOverlay'
+        'enableDebugOverlay',
+        'enableBrutalTestMode'
       ])
     ]);
 
@@ -397,6 +402,7 @@ document.addEventListener('DOMContentLoaded', () => {
     enablePromptChunkingInput.checked = syncItems.enablePromptChunking === true;
     enableBatchConcurrencyInput.checked = syncItems.enableBatchConcurrency !== false;
     enableDebugOverlayInput.checked = syncItems.enableDebugOverlay === true;
+    enableBrutalTestModeInput.checked = syncItems.enableBrutalTestMode === true;
 
     renderEndpointOptions();
     renderEndpointSummary(getCurrentEndpoint());

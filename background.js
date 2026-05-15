@@ -24,6 +24,18 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       });
     return true;
   }
+
+  if (request.action === 'finalize_brutal_test_log') {
+    finalizeBrutalTestLog(request.payload)
+      .then(result => {
+        sendResponse(result);
+      })
+      .catch(error => {
+        console.error('Finalize brutal test log error in background:', error);
+        sendResponse({ error: error.message });
+      });
+    return true;
+  }
 });
 
 const DEFAULT_TARGET_LANGUAGE = '专业而地道的中文';
@@ -33,6 +45,220 @@ const DEFAULT_ESTIMATED_OUTPUT_RATIO = 1.2;
 const ESTIMATION_MESSAGE_OVERHEAD_TOKENS = 60;
 const ESTIMATION_WARNING_THRESHOLD = 120000;
 const PAGE_BATCH_SIZE = 30;
+const BRUTAL_TEST_LOG_DIR = 'LLMPageTrans/brutal-test-logs';
+const brutalTestLogSessions = new Map();
+
+function buildBrutalTestString(text) {
+  const source = String(text || '');
+  const length = source.length;
+
+  if (length === 0) {
+    return '';
+  }
+
+  if (length === 1) {
+    return '#';
+  }
+
+  return `#${'*'.repeat(Math.max(0, length - 2))}#`;
+}
+
+function buildBrutalTestTranslation(textMap) {
+  const translatedMap = {};
+
+  Object.entries(textMap || {}).forEach(([id, value]) => {
+    translatedMap[id] = buildBrutalTestString(value);
+  });
+
+  return translatedMap;
+}
+
+function normalizeTranslationPayload(payload) {
+  if (payload && payload.textMap) {
+    return {
+      textMap: payload.textMap,
+      meta: payload.meta || {}
+    };
+  }
+
+  return {
+    textMap: payload || {},
+    meta: {}
+  };
+}
+
+function sanitizeFilenamePart(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .slice(0, 80) || 'untitled';
+}
+
+function getBrutalLogSession(sessionId, meta, settings) {
+  const key = sessionId || `anonymous_${Date.now()}`;
+
+  if (!brutalTestLogSessions.has(key)) {
+    brutalTestLogSessions.set(key, {
+      sessionId: key,
+      createdAt: new Date().toISOString(),
+      pageTitle: meta.pageTitle || '',
+      pageUrl: meta.pageUrl || '',
+      endpointName: settings.endpoint.name,
+      providerId: settings.providerId,
+      providerLabel: settings.providerDefinition.label,
+      modelName: settings.modelName,
+      targetLang: settings.targetLang,
+      enablePromptChunking: settings.enablePromptChunking,
+      calls: []
+    });
+  }
+
+  return brutalTestLogSessions.get(key);
+}
+
+function buildBrutalTestLogCalls(textMap, settings, meta) {
+  const systemPrompt = buildSystemPrompt(settings.targetLang, settings.glossaryMarkdown);
+  const userPrompt = JSON.stringify(textMap);
+  const shouldChunk = settings.enablePromptChunking === true && countWords(userPrompt) > MAX_PROMPT_WORDS;
+
+  if (!shouldChunk) {
+    return [{
+      batchIndex: meta.batchIndex,
+      totalBatches: meta.totalBatches,
+      chunkIndex: 0,
+      totalChunks: 1,
+      systemPrompt,
+      userPrompt
+    }];
+  }
+
+  const { chunks } = buildTranslationChunks(textMap, MAX_PROMPT_WORDS);
+  return chunks.map((chunk, chunkIndex) => ({
+    batchIndex: meta.batchIndex,
+    totalBatches: meta.totalBatches,
+    chunkIndex,
+    totalChunks: chunks.length,
+    systemPrompt,
+    userPrompt: JSON.stringify(chunk)
+  }));
+}
+
+function tryParseJsonContent(content) {
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(content)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      errorMessage: error.message
+    };
+  }
+}
+
+async function runBrutalTestCallsForLog(textMap, settings, meta, runtimeProviderConfig) {
+  const session = getBrutalLogSession(meta.sessionId, meta, settings);
+  const calls = buildBrutalTestLogCalls(textMap, settings, meta);
+
+  for (const call of calls) {
+    const callRecord = {
+      callIndex: session.calls.length,
+      recordedAt: new Date().toISOString(),
+      ...call,
+      outputRaw: '',
+      outputParsed: null,
+      outputParseError: '',
+      errorMessage: ''
+    };
+
+    session.calls.push(callRecord);
+
+    try {
+      const outputRaw = await globalThis.sendProviderChatCompletion(
+        settings.providerId,
+        runtimeProviderConfig,
+        {
+          model: settings.modelName,
+          systemPrompt: call.systemPrompt,
+          userPrompt: call.userPrompt
+        }
+      );
+      const parsed = tryParseJsonContent(outputRaw);
+      callRecord.outputRaw = outputRaw;
+      callRecord.completedAt = new Date().toISOString();
+
+      if (parsed.ok) {
+        callRecord.outputParsed = parsed.value;
+      } else {
+        callRecord.outputParseError = parsed.errorMessage;
+      }
+    } catch (error) {
+      callRecord.errorMessage = error.message;
+      callRecord.completedAt = new Date().toISOString();
+      throw error;
+    }
+  }
+}
+
+async function runBrutalTestTranslation(textMap, settings, meta, runtimeProviderConfig) {
+  await runBrutalTestCallsForLog(textMap, settings, meta, runtimeProviderConfig);
+  return buildBrutalTestTranslation(textMap);
+}
+
+function downloadTextFile(filename, text) {
+  return new Promise((resolve, reject) => {
+    const url = `data:application/json;charset=utf-8,${encodeURIComponent(text)}`;
+    chrome.downloads.download({
+      url,
+      filename,
+      saveAs: false,
+      conflictAction: 'uniquify'
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      resolve(downloadId);
+    });
+  });
+}
+
+async function finalizeBrutalTestLog(payload) {
+  const meta = payload || {};
+  const sessionId = meta.sessionId;
+
+  if (!sessionId || !brutalTestLogSessions.has(sessionId)) {
+    return { skipped: true };
+  }
+
+  const session = brutalTestLogSessions.get(sessionId);
+  brutalTestLogSessions.delete(sessionId);
+
+  const completedAt = new Date().toISOString();
+  const log = {
+    ...session,
+    completedAt,
+    status: meta.status || 'completed',
+    durationMs: meta.durationMs || 0,
+    textNodeCount: meta.textNodeCount || 0,
+    batchCount: meta.batchCount || 0,
+    errorMessage: meta.errorMessage || '',
+    callCount: session.calls.length
+  };
+
+  const pagePart = sanitizeFilenamePart(session.pageTitle || 'page');
+  const timePart = completedAt.replace(/[:.]/g, '-');
+  const filename = `${BRUTAL_TEST_LOG_DIR}/${timePart}-${pagePart}.json`;
+  const downloadId = await downloadTextFile(filename, JSON.stringify(log, null, 2));
+
+  return {
+    saved: true,
+    filename,
+    downloadId
+  };
+}
 
 function toNumber(value, fallbackValue) {
   if (value === '' || value === null || value === undefined) {
@@ -201,10 +427,15 @@ function buildEstimationWarning({
   textNodeCount,
   estimatedTotalTokens,
   chunkCount,
-  estimatedCost
+  estimatedCost,
+  brutalTestModeEnabled
 }) {
   if (textNodeCount === 0) {
     return '当前页面未提取到可翻译文本。';
+  }
+
+  if (brutalTestModeEnabled === true) {
+    return '当前开启暴力测试模式，会真实调用模型并写入日志，但页面只显示等长占位字符串。';
   }
 
   if (estimatedTotalTokens >= ESTIMATION_WARNING_THRESHOLD) {
@@ -234,6 +465,7 @@ function buildEstimationResult(textMap, options) {
     targetLang,
     glossaryMarkdown,
     enablePromptChunking,
+    brutalTestModeEnabled,
     inputPricePerMillion,
     outputPricePerMillion,
     estimatedOutputRatio
@@ -278,6 +510,7 @@ function buildEstimationResult(textMap, options) {
     endpointName,
     modelName,
     targetLang,
+    brutalTestModeEnabled,
     textNodeCount,
     textCharacterCount: sourceText.length,
     promptWordCount: countWords(userPrompt),
@@ -296,7 +529,8 @@ function buildEstimationResult(textMap, options) {
       textNodeCount,
       estimatedTotalTokens,
       chunkCount,
-      estimatedCost
+      estimatedCost,
+      brutalTestModeEnabled
     })
   };
 }
@@ -391,7 +625,8 @@ async function getRuntimeEndpointSettings() {
       'enablePromptChunking',
       'inputPricePerMillion',
       'outputPricePerMillion',
-      'estimatedOutputRatio'
+      'estimatedOutputRatio',
+      'enableBrutalTestMode'
     ]),
     getLocalSettings([globalThis.ENDPOINTS_STORAGE_KEY])
   ]);
@@ -415,7 +650,8 @@ async function getRuntimeEndpointSettings() {
     targetLang: endpoint.targetLang || DEFAULT_TARGET_LANGUAGE,
     glossaryMarkdown: syncItems.glossaryMarkdown || DEFAULT_GLOSSARY,
     enablePromptChunking: syncItems.enablePromptChunking === true,
-    estimatedOutputRatio: toNumber(syncItems.estimatedOutputRatio, DEFAULT_ESTIMATED_OUTPUT_RATIO)
+    estimatedOutputRatio: toNumber(syncItems.estimatedOutputRatio, DEFAULT_ESTIMATED_OUTPUT_RATIO),
+    brutalTestModeEnabled: syncItems.enableBrutalTestMode === true
   };
 }
 
@@ -435,15 +671,18 @@ async function handleEstimateRequest(payload) {
     targetLang: settings.targetLang,
     glossaryMarkdown: settings.glossaryMarkdown,
     enablePromptChunking: settings.enablePromptChunking,
+    brutalTestModeEnabled: settings.brutalTestModeEnabled,
     inputPricePerMillion: toNumber(settings.endpoint.inputPricePerMillion, NaN),
     outputPricePerMillion: toNumber(settings.endpoint.outputPricePerMillion, NaN),
     estimatedOutputRatio: settings.estimatedOutputRatio
   });
 }
 
-async function handleTranslation(textMap) {
+async function handleTranslation(payload) {
   return new Promise((resolve, reject) => {
     getRuntimeEndpointSettings().then(async (settings) => {
+      const { textMap, meta } = normalizeTranslationPayload(payload);
+
       if (!settings.endpoint.apiKey) {
         return reject(new Error(`API Key is not configured for endpoint "${settings.endpoint.name}". Please open Manage Endpoints and complete it.`));
       }
@@ -459,6 +698,17 @@ async function handleTranslation(textMap) {
       };
 
       try {
+        if (settings.brutalTestModeEnabled === true) {
+          const translatedMap = await runBrutalTestTranslation(
+            textMap,
+            settings,
+            meta,
+            runtimeProviderConfig
+          );
+          resolve(translatedMap);
+          return;
+        }
+
         const userPrompt = JSON.stringify(textMap);
         const shouldChunk = settings.enablePromptChunking === true && countWords(userPrompt) > MAX_PROMPT_WORDS;
 
